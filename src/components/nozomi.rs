@@ -1,5 +1,4 @@
 use std::convert::TryInto;
-use std::slice;
 
 use anyhow;
 use bytes::Bytes;
