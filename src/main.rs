@@ -2,14 +2,16 @@ extern crate madome_synchronizer;
 
 use anyhow;
 
-use crate::madome_synchronizer::components::nozomi::NozomiParser;
+use crate::madome_synchronizer::parser::Parser;
+use crate::madome_synchronizer::parser::Nozomi;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let nozomi = NozomiParser::request(1, 25).await?;
-    let nozomi = NozomiParser::parse(nozomi).await?;
+    let nozomi = Nozomi::new(1, 25, String::from("korean"));
+    let rd = nozomi.request().await?;
+    let pd = nozomi.parse(rd).await?;
 
-    println!("Book IDs = {:?}", nozomi);
+    println!("Book IDs = {:?}", pd);
 
     println!("Hello, world!");
 

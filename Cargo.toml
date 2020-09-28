@@ -12,3 +12,4 @@ reqwest = { version = "0.10.8", features = ["json"]}
 tokio = { version = "0.2.22", features = ["full"]}
 anyhow = "1.0.32"
 bytes = "0.5.6"
+async-trait = "0.1.40"
