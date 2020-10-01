@@ -1,10 +1,13 @@
 use anyhow;
 use async_trait::async_trait;
 
+// mod galleries;
+mod gallery_block;
 mod nozomi;
 
+// pub use galleries::Galleries;
+pub use gallery_block::GalleryBlock;
 pub use nozomi::Nozomi;
-pub mod url;
 
 #[async_trait]
 pub trait Parser {

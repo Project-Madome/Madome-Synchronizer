@@ -7,6 +7,10 @@ use reqwest;
 
 use super::Parser;
 
+/// # Nozomi Parser
+/// Not needed VPN for Nozomi Parser
+///
+/// ##
 pub struct Nozomi {
     page: usize,
     per_page: usize,
@@ -52,7 +56,7 @@ impl Parser for Nozomi {
         Ok(bytes)
     }
 
-    async fn parse(&self, nozomi: Bytes) -> anyhow::Result<Self::ParseData> {
+    async fn parse(&self, nozomi: Self::RequestData) -> anyhow::Result<Self::ParseData> {
         let nozomi = nozomi.as_ref();
 
         let mut res = vec![];
@@ -75,8 +79,8 @@ impl Parser for Nozomi {
 
 #[cfg(test)]
 mod test {
-    use super::Parser;
     use super::Nozomi;
+    use super::Parser;
 
     #[tokio::test]
     async fn parse_nozomi() -> anyhow::Result<()> {
