@@ -18,11 +18,11 @@ impl GalleryBlock {
         GalleryBlock { id }
     }
 
-    pub fn parse_single_metadata(&self, fragment: scraper::ElementRef) -> String {
+    pub fn parse_single_metadata(&self, element: scraper::ElementRef) -> String {
         let anchor_selector = Selector::parse("a").unwrap();
 
         String::from(
-            fragment
+            element
                 .select(&anchor_selector)
                 .next()
                 .unwrap()
@@ -32,17 +32,21 @@ impl GalleryBlock {
         )
     }
 
-    pub fn parse_multiple_metadata(&self, fragment: scraper::ElementRef) -> Vec<String> {
+    pub fn parse_multiple_metadata(&self, element: scraper::ElementRef) -> Vec<String> {
         let ul_selector = Selector::parse("ul").unwrap();
         let li_selector = Selector::parse("li").unwrap();
 
-        fragment
+        element
             .select(&ul_selector)
             .next()
             .unwrap()
             .select(&li_selector)
             .map(|element| String::from(element.text().next().unwrap()))
             .collect::<Vec<_>>()
+    }
+
+    pub fn parse_thumbnail_url(&self, fragment: &Html) -> String {
+        String::from("s: &str")
     }
 
     pub fn parse_title(&self, fragment: &Html) -> String {
@@ -60,10 +64,6 @@ impl GalleryBlock {
     }
 
     pub fn is_nothing(&self, element: &scraper::ElementRef<'_>) -> bool {
-        println!(
-            "is nothing {}",
-            String::from(element.text().next().unwrap()).trim()
-        );
         String::from(element.text().next().unwrap()).trim() == String::from("N/A")
     }
 

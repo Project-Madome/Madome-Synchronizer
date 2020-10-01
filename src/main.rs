@@ -7,14 +7,14 @@ use crate::madome_synchronizer::parser::Parser;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    /* let nozomi = parser::Nozomi::new(1, 25, String::from("korean"));
+    let nozomi = parser::Nozomi::new(1900, 25, String::from("korean"));
 
     let rd = nozomi.request().await?;
     let pd = nozomi.parse(rd).await?;
 
     println!("Book IDs = {:?}", pd);
 
-    {
+    /* {
         println!("-----------------------------------");
         println!("Galleries");
 
@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
         println!("-----------------------------------");
         println!("GalleryBlock");
 
-        let gallery_block = parser::GalleryBlock::new(1686905);
+        let gallery_block = parser::GalleryBlock::new(pd[0]);
 
         let rd = gallery_block.request().await?;
 
@@ -49,6 +49,16 @@ async fn main() -> anyhow::Result<()> {
     }
 
     println!("Hello, world!");
+
+    let nozomi = parser::Nozomi::new(20, 100000, String::from("korean"));
+
+    let rd = nozomi.request().await?;
+    let mut pd = nozomi.parse(rd).await?;
+
+    // pd.sort_by(|a, b| b.partial_cmp(a).unwrap());
+
+    println!("Book IDs = {:?}", pd);
+    println!("Book Lengths = {}", pd.len());
 
     Ok(())
 }

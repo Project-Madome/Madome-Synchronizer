@@ -57,15 +57,19 @@ impl Parser for Nozomi {
     }
 
     async fn parse(&self, nozomi: Self::RequestData) -> anyhow::Result<Self::ParseData> {
-        let nozomi = nozomi.as_ref();
-
         let mut res = vec![];
 
-        for i in (0..nozomi.len()).step_by(4) {
+        'a: for i in (0..nozomi.len()).step_by(4) {
             let mut temp: i32 = 0;
 
             for j in 0..3 {
-                temp += TryInto::<i32>::try_into(nozomi[i + (3 - j)]).unwrap() << (j << 3);
+                // https://github.com/Project-Madome/Madome-Synchronizer/issues/1
+                // temp += TryInto::<i32>::try_into(nozomi[i + (3 - j)])? << (j << 3);
+                if let Some(a) = nozomi.get(i + (3 - j)) {
+                    temp += TryInto::<i32>::try_into(*a)? << (j << 3);
+                } else {
+                    break 'a;
+                }
             }
 
             res.push(temp);
@@ -91,6 +95,16 @@ mod test {
         let pd = nozomi.parse(rd).await?;
 
         assert_eq!(25, pd.len());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parse_nozomi_index_out_of_bounds() -> anyhow::Result<()> {
+        let nozomi = Nozomi::new(20, 1000000, String::from("korean"));
+
+        let rd = nozomi.request().await?;
+        let pd = nozomi.parse(rd).await?;
 
         Ok(())
     }
