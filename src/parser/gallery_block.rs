@@ -1,14 +1,12 @@
-use time;
-
 use anyhow;
 use async_trait::async_trait;
 use reqwest;
 use scraper::{Html, Selector};
 
-use crate::models::{Book, ContentType, Metadata};
+use crate::models::{ContentType, Metadata};
 use crate::parser::Parser;
 
-/// Can't parse Groups
+/// Can't parse Groups, Characters
 pub struct GalleryBlock {
     id: i32,
 }
@@ -21,15 +19,14 @@ impl GalleryBlock {
     pub fn parse_single_metadata(&self, element: scraper::ElementRef) -> String {
         let anchor_selector = Selector::parse("a").unwrap();
 
-        String::from(
-            element
-                .select(&anchor_selector)
-                .next()
-                .unwrap()
-                .text()
-                .next()
-                .unwrap(),
-        )
+        element
+            .select(&anchor_selector)
+            .next()
+            .unwrap()
+            .text()
+            .next()
+            .unwrap()
+            .to_string()
     }
 
     pub fn parse_multiple_metadata(&self, element: scraper::ElementRef) -> Vec<String> {
@@ -41,34 +38,29 @@ impl GalleryBlock {
             .next()
             .unwrap()
             .select(&li_selector)
-            .map(|element| String::from(element.text().next().unwrap()))
+            .map(|element| element.text().next().unwrap().to_string())
             .collect::<Vec<_>>()
-    }
-
-    pub fn parse_thumbnail_url(&self, fragment: &Html) -> String {
-        String::from("s: &str")
     }
 
     pub fn parse_title(&self, fragment: &Html) -> String {
         let title_selector = Selector::parse("h1.lillie > a").unwrap();
 
-        String::from(
-            fragment
-                .select(&title_selector)
-                .next()
-                .unwrap()
-                .text()
-                .next()
-                .unwrap(),
-        )
+        fragment
+            .select(&title_selector)
+            .next()
+            .unwrap()
+            .text()
+            .next()
+            .unwrap()
+            .to_string()
     }
 
     pub fn is_nothing(&self, element: &scraper::ElementRef<'_>) -> bool {
-        String::from(element.text().next().unwrap()).trim() == String::from("N/A")
+        element.text().next().unwrap().trim() == "N/A"
     }
 
     /// Change return type to Option<Vec<String>>
-    /// and check N/A // 1722734
+    /// and check N/A
     pub fn parse_artists(&self, fragment: &Html) -> Option<Vec<String>> {
         let artist_list_selector = Selector::parse(".artist-list").unwrap();
         let ul_selector = Selector::parse("ul").unwrap();
@@ -84,7 +76,7 @@ impl GalleryBlock {
 
         Some(
             ul.select(&li_selector)
-                .map(|element| String::from(element.text().next().unwrap()))
+                .map(|element| element.text().next().unwrap().to_string())
                 .collect::<Vec<_>>(),
         )
     }
@@ -160,11 +152,45 @@ impl GalleryBlock {
         Some(date_string)
     }
 
+    pub fn parse_thumbnail_url(&self, fragment: &Html) -> String {
+        let anchor_selector = Selector::parse("a").unwrap();
+        let img_selector = Selector::parse("img").unwrap();
+
+        let anchor = fragment.select(&anchor_selector).next().unwrap();
+
+        anchor
+            .select(&img_selector)
+            .next()
+            .unwrap()
+            .value()
+            .attr("src")
+            .unwrap()[("//tn.hitomi.la").len()..]
+            .replace("smallbig", "big")
+    }
+
+    #[deprecated]
+    pub fn parse_content_url(&self, fragment: &Html) -> String {
+        let anchor_selector = Selector::parse("a").unwrap();
+
+        fragment
+            .select(&anchor_selector)
+            .next()
+            .unwrap()
+            .value()
+            .attr("href")
+            .unwrap()
+            .to_string()
+    }
+
     pub fn parse_metadata(&self, fragment: &Html, metadata_type: Metadata) -> Metadata {
         match metadata_type {
             Metadata::Title(_) => Metadata::Title(Some(self.parse_title(fragment))),
             Metadata::Artists(_) => Metadata::Artists(self.parse_artists(fragment)),
             Metadata::CreatedAt(_) => Metadata::CreatedAt(self.parse_created_at(fragment)),
+            //  Metadata::ContentURL(_) => Metadata::ContentURL(Some(self.parse_content_url(fragment))),
+            Metadata::ThumbnailURL(_) => {
+                Metadata::ThumbnailURL(Some(self.parse_thumbnail_url(fragment)))
+            }
             _ => {
                 let metadata_table_selector = Selector::parse(".dj-content > .dj-desc").unwrap();
                 let tr_element_selector = Selector::parse("tr").unwrap();
@@ -176,9 +202,9 @@ impl GalleryBlock {
                     .unwrap()
                     .select(&tr_element_selector)
                     .find(|element| {
-                        let mut element = element.select(&td_element_selector);
+                        let element = element.select(&td_element_selector).next().unwrap();
 
-                        element.next().unwrap().text().next().unwrap() == metadata_type.as_str()
+                        element.text().next().unwrap() == metadata_type.as_str()
                     })
                     .unwrap()
                     /*
@@ -197,22 +223,12 @@ impl GalleryBlock {
                     .nth(1)
                     .unwrap();
 
-                let is_nothing =
-                    String::from(r.text().next().unwrap()).trim() == String::from("N/A");
-
-                if is_nothing {
-                    // None
-                    metadata_type
-                } else {
-                    match metadata_type {
-                        Metadata::ContentType(_) => {
-                            Metadata::ContentType(self.parse_content_type(r))
-                        }
-                        Metadata::Language(_) => Metadata::Language(self.parse_language(r)),
-                        Metadata::Series(_) => Metadata::Series(self.parse_series(r)),
-                        Metadata::Tags(_) => Metadata::Tags(self.parse_tags(r)),
-                        _ => metadata_type,
-                    }
+                match metadata_type {
+                    Metadata::ContentType(_) => Metadata::ContentType(self.parse_content_type(r)),
+                    Metadata::Language(_) => Metadata::Language(self.parse_language(r)),
+                    Metadata::Series(_) => Metadata::Series(self.parse_series(r)),
+                    Metadata::Tags(_) => Metadata::Tags(self.parse_tags(r)),
+                    _ => metadata_type,
                 }
             }
         }
@@ -222,16 +238,24 @@ impl GalleryBlock {
 #[async_trait]
 impl Parser for GalleryBlock {
     type RequestData = String;
-    type ParseData = Book;
+    type ParseData = Vec<Metadata>;
 
-    fn url(&self) -> String {
-        format!("https://ltn.hitomi.la/galleryblock/{}.html", self.id)
+    async fn url(&self) -> anyhow::Result<String> {
+        Ok(format!(
+            "https://ltn.hitomi.la/galleryblock/{}.html",
+            self.id
+        ))
     }
 
     async fn request(&self) -> anyhow::Result<Self::RequestData> {
         let client = reqwest::Client::builder().build()?;
 
-        let gallery_block_html = client.get(self.url().as_str()).send().await?.text().await?;
+        let gallery_block_html = client
+            .get(self.url().await?.as_str())
+            .send()
+            .await?
+            .text()
+            .await?;
 
         Ok(gallery_block_html)
     }
@@ -239,6 +263,7 @@ impl Parser for GalleryBlock {
     async fn parse(&self, request_data: Self::RequestData) -> anyhow::Result<Self::ParseData> {
         let fragment = Html::parse_fragment(request_data.as_str());
 
+        let id = Metadata::ID(Some(self.id));
         let title = self.parse_metadata(&fragment, Metadata::Title(None));
         let artists = self.parse_metadata(&fragment, Metadata::Artists(None));
         let series = self.parse_metadata(&fragment, Metadata::Series(None));
@@ -246,21 +271,20 @@ impl Parser for GalleryBlock {
         let language = self.parse_metadata(&fragment, Metadata::Language(None));
         let content_type = self.parse_metadata(&fragment, Metadata::ContentType(None));
         let created_at = self.parse_metadata(&fragment, Metadata::CreatedAt(None));
+        let thumbnail_url = self.parse_metadata(&fragment, Metadata::ThumbnailURL(None));
+        // let content_url = self.parse_metadata(&fragment, Metadata::ContentURL(None));
 
-        let book = Book {
-            id: Metadata::Id(Some(self.id)),
+        Ok(vec![
+            id,
             title,
             artists,
-            groups: Metadata::Groups(None),
-            characters: Metadata::Characters(None),
             series,
             tags,
             language,
             content_type,
             created_at,
-        };
-
-        Ok(book)
+            thumbnail_url,
+        ])
     }
 }
 
@@ -268,51 +292,53 @@ impl Parser for GalleryBlock {
 mod tests {
     use scraper::Html;
 
-    use super::Book;
     use super::ContentType;
     use super::GalleryBlock;
     use super::Metadata;
     use super::Parser;
 
-    #[tokio::test]
-    async fn parse() -> anyhow::Result<()> {
+    /* #[tokio::test]
+    async fn parse_gallery_block() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1724122);
 
         let rd = gallery_block.request().await?;
 
         let pd = gallery_block.parse(rd).await?;
 
-        let expected = Book {
-            id: Metadata::Id(Some(1724122)),
-            title: Metadata::Title(Some(String::from("Tsundere Imouto | 츤데레 여동생"))),
-            artists: Metadata::Artists(Some(vec![String::from("airandou")])),
+        let expected = BookOfGalleryBlock {
+            id: Metadata::ID(Some(1724122)),
+            title: Metadata::Title(Some("Tsundere Imouto | 츤데레 여동생".to_string())),
+            artists: Metadata::Artists(Some(vec!["airandou".to_string()])),
             series: Metadata::Series(None),
-            groups: Metadata::Groups(None),
-            characters: Metadata::Characters(None),
+            // groups: Metadata::Groups(None),
+            // characters: Metadata::Characters(None),
             tags: Metadata::Tags(Some(
                 ["footjob ♀", "loli ♀", "sister ♀", "incest"]
                     .iter()
-                    .map(|st| String::from(*st))
+                    .map(|st| st.to_string())
                     .collect::<Vec<_>>(),
             )),
-            language: Metadata::Language(Some(String::from("한국어"))),
+            language: Metadata::Language(Some("한국어".to_string())),
             content_type: Metadata::ContentType(Some(ContentType::Manga)),
-            created_at: Metadata::CreatedAt(Some(String::from("2020-09-02 10:01:00 -05:00"))),
+            created_at: Metadata::CreatedAt(Some("2020-09-02 10:01:00 -05:00".to_string())),
+            // content_url: Metadata::ContentURL(None),
+            thumbnail_url: Metadata::ThumbnailURL(Some("/bigtn/e/0a/2fd1808fbf15b1901bb6eb751ee88a517bd67ea44061d74f6bd9e4c63ae620ae.jpg".to_string())),
         };
 
         assert_eq!(expected.id, pd.id);
         assert_eq!(expected.title, pd.title);
         assert_eq!(expected.artists, pd.artists);
         assert_eq!(expected.series, pd.series);
-        assert_eq!(expected.groups, pd.groups);
-        assert_eq!(expected.characters, pd.characters);
+        // assert_eq!(expected.groups, pd.groups);
+        // assert_eq!(expected.characters, pd.characters);
         assert_eq!(expected.tags, pd.tags);
         assert_eq!(expected.language, pd.language);
         assert_eq!(expected.content_type, pd.content_type);
         assert_eq!(expected.created_at, pd.created_at);
+        assert_eq!(expected.thumbnail_url, pd.thumbnail_url);
 
         Ok(())
-    }
+    } */
 
     #[tokio::test]
     async fn parse_title() -> anyhow::Result<()> {
@@ -322,11 +348,50 @@ mod tests {
 
         let fragment = Html::parse_fragment(rd.as_str());
 
-        let title = gallery_block.parse_title(&fragment);
+        let title = gallery_block.parse_metadata(&fragment, Metadata::Title(None));
 
-        let expected = String::from("COMIC LO 2019-05");
+        let expected = Metadata::Title(Some("COMIC LO 2019-05".to_string()));
 
         assert_eq!(expected, title);
+
+        Ok(())
+    }
+
+    /* #[tokio::test]
+    async fn parse_content_url() -> anyhow::Result<()> {
+        let gallery_block = GalleryBlock::new(1399900);
+
+        let rd = gallery_block.request().await?;
+
+        let fragment = Html::parse_fragment(rd.as_str());
+
+        let content_url = gallery_block.parse_metadata(&fragment, Metadata::ContentURL(None));
+
+        let expected = Metadata::ContentURL(Some(
+            "/manga/comic-lo-2019-05-한국어-1399900.html".to_string(),
+        ));
+
+        assert_eq!(expected, content_url);
+
+        Ok(())
+    } */
+
+    #[tokio::test]
+    async fn parse_thumbnail_url() -> anyhow::Result<()> {
+        let gallery_block = GalleryBlock::new(1399900);
+
+        let rd = gallery_block.request().await?;
+
+        let fragment = Html::parse_fragment(rd.as_str());
+
+        let content_url = gallery_block.parse_metadata(&fragment, Metadata::ThumbnailURL(None));
+
+        let expected = Metadata::ThumbnailURL(Some(
+            "/bigtn/2/7b/63c1f20d7bb770faadf60a1a353d64f29c0d51f958bca76cc8e05fb3d19f57b2.jpg"
+                .to_string(),
+        ));
+
+        assert_eq!(expected, content_url);
 
         Ok(())
     }
@@ -363,7 +428,7 @@ mod tests {
                 "yusa",
             ]
             .iter()
-            .map(|st| String::from(*st))
+            .map(|st| st.to_string())
             .collect::<Vec<_>>(),
         ));
 
@@ -399,7 +464,7 @@ mod tests {
 
         let content_type = gallery_block.parse_metadata(&fragment, Metadata::Language(None));
 
-        let expected = Metadata::Language(Some(String::from("한국어")));
+        let expected = Metadata::Language(Some("한국어".to_string()));
 
         assert_eq!(expected, content_type);
 
@@ -445,7 +510,7 @@ mod tests {
             "yuru camp",
         ]
         .iter()
-        .map(|s| String::from(*s))
+        .map(|s| s.to_string())
         .collect::<Vec<_>>();
 
         let expected = Metadata::Series(Some(e));
@@ -485,7 +550,7 @@ mod tests {
         let expected = Metadata::Tags(Some(
             ["footjob ♀", "loli ♀", "sister ♀", "incest"]
                 .iter()
-                .map(|st| String::from(*st))
+                .map(|st| st.to_string())
                 .collect::<Vec<_>>(),
         ));
 
@@ -521,7 +586,7 @@ mod tests {
 
         let created_at = gallery_block.parse_metadata(&fragment, Metadata::CreatedAt(None));
 
-        let expected = Metadata::CreatedAt(Some(String::from("2020-09-02 10:01:00 -05:00")));
+        let expected = Metadata::CreatedAt(Some("2020-09-02 10:01:00 -05:00".to_string()));
 
         assert_eq!(expected, created_at);
 
