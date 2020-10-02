@@ -1,6 +1,6 @@
 #[derive(Debug, PartialEq)]
 pub enum Metadata {
-    Id(Option<i32>),
+    ID(Option<i32>),
     Title(Option<String>),
     Artists(Option<Vec<String>>),
     Series(Option<Vec<String>>),
@@ -10,21 +10,25 @@ pub enum Metadata {
     Groups(Option<Vec<String>>),
     Characters(Option<Vec<String>>),
     CreatedAt(Option<String>),
+    ContentURL(Option<String>),
+    ThumbnailURL(Option<String>),
 }
 
 impl Metadata {
     pub fn as_str(&self) -> &str {
         match self {
-            Metadata::Id(_) => "Id",
+            Metadata::ID(_) => "ID",
             Metadata::Series(_) => "Series",
             Metadata::Language(_) => "Language",
             Metadata::Tags(_) => "Tags",
             Metadata::ContentType(_) => "Type",
             Metadata::Title(_) => "Title",
             Metadata::Artists(_) => "Artists",
-            Metadata::Groups(_) => "Groups",
+            Metadata::Groups(_) => "Group",
             Metadata::Characters(_) => "Characters",
             Metadata::CreatedAt(_) => "CreatedAt",
+            Metadata::ContentURL(_) => "ContentURL",
+            Metadata::ThumbnailURL(_) => "ThumbnailURL",
         }
     }
 }
