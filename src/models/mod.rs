@@ -1,5 +1,5 @@
 mod book;
 mod metadata;
 
-pub use book::Book;
-pub use metadata::{ContentType, Metadata};
+pub use book::{Book, MetadataBook};
+pub use metadata::{ContentType, Language, Metadata};
