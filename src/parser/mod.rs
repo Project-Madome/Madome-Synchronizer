@@ -1,11 +1,11 @@
 use anyhow;
 use async_trait::async_trait;
 
-// mod galleries;
+mod gallery;
 mod gallery_block;
 mod nozomi;
 
-// pub use galleries::Galleries;
+pub use gallery::Gallery;
 pub use gallery_block::GalleryBlock;
 pub use nozomi::Nozomi;
 
@@ -14,7 +14,7 @@ pub trait Parser {
     type RequestData;
     type ParseData;
 
-    fn url(&self) -> String;
+    async fn url(&self) -> anyhow::Result<String>;
 
     async fn request(&self) -> anyhow::Result<Self::RequestData>;
 

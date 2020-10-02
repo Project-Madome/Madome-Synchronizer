@@ -32,11 +32,11 @@ impl Parser for Nozomi {
     type RequestData = Bytes;
     type ParseData = Vec<i32>;
 
-    fn url(&self) -> String {
-        format!(
+    async fn url(&self) -> anyhow::Result<String> {
+        Ok(format!(
             "https://ltn.hitomi.la/index-{}.nozomi",
             self.language.to_lowercase()
-        )
+        ))
     }
 
     async fn request(&self) -> anyhow::Result<Self::RequestData> {
@@ -46,7 +46,7 @@ impl Parser for Nozomi {
         let end_bytes = start_bytes + self.per_page * 4 - 1;
 
         let bytes = client
-            .get(self.url().as_str())
+            .get(self.url().await?.as_str())
             .header("Range", format!("bytes={}-{}", start_bytes, end_bytes))
             .send()
             .await?
@@ -75,7 +75,7 @@ impl Parser for Nozomi {
             res.push(temp);
         }
 
-        res.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        res.sort_by(|a, b| b.cmp(a));
 
         Ok(res)
     }
@@ -88,7 +88,7 @@ mod test {
 
     #[tokio::test]
     async fn parse_nozomi() -> anyhow::Result<()> {
-        let nozomi = Nozomi::new(1, 25, String::from("korean"));
+        let nozomi = Nozomi::new(1, 25, "korean".to_string());
 
         let rd = nozomi.request().await?;
 
@@ -101,7 +101,7 @@ mod test {
 
     #[tokio::test]
     async fn parse_nozomi_index_out_of_bounds() -> anyhow::Result<()> {
-        let nozomi = Nozomi::new(20, 1000000, String::from("korean"));
+        let nozomi = Nozomi::new(20, 1000000, "korean".to_string());
 
         let rd = nozomi.request().await?;
         let pd = nozomi.parse(rd).await?;
