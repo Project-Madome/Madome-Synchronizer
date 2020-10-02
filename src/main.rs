@@ -7,39 +7,29 @@ use crate::madome_synchronizer::parser::Parser;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let nozomi = parser::Nozomi::new(1900, 25, String::from("korean"));
+    let nozomi = parser::Nozomi::new(1, 25, "korean".to_string());
 
     let rd = nozomi.request().await?;
     let pd = nozomi.parse(rd).await?;
 
     println!("Book IDs = {:?}", pd);
 
-    /* {
+    {
         println!("-----------------------------------");
-        println!("Galleries");
+        println!("Gallery");
 
-        let galleries = parser::Galleries::new(pd[13]);
+        let gallery = parser::Gallery::new(pd[13]);
 
-        let rd = galleries.request().await?;
-
-        println!("{}", rd);
-
-        let pd = galleries.parse(rd).await?;
-
-        println!("{}", pd);
-
-        let content = parser::Content::new(pd);
-
-        let rd = content.request().await?;
+        let rd = gallery.request().await?;
 
         println!("{}", rd);
-    } */
+    }
 
     {
         println!("-----------------------------------");
         println!("GalleryBlock");
 
-        let gallery_block = parser::GalleryBlock::new(pd[0]);
+        let gallery_block = parser::GalleryBlock::new(pd[13]);
 
         let rd = gallery_block.request().await?;
 
@@ -48,17 +38,19 @@ async fn main() -> anyhow::Result<()> {
         let pd = gallery_block.parse(rd).await?;
     }
 
-    println!("Hello, world!");
+    /* {
+        println!("Hello, world!");
 
-    let nozomi = parser::Nozomi::new(20, 100000, String::from("korean"));
+        let nozomi = parser::Nozomi::new(20, 100000, "korean".to_string());
 
-    let rd = nozomi.request().await?;
-    let mut pd = nozomi.parse(rd).await?;
+        let rd = nozomi.request().await?;
+        let pd = nozomi.parse(rd).await?;
 
-    // pd.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        // pd.sort_by(|a, b| b.partial_cmp(a).unwrap());
 
-    println!("Book IDs = {:?}", pd);
-    println!("Book Lengths = {}", pd.len());
+        println!("Book IDs = {:?}", pd);
+        println!("Book Lengths = {}", pd.len());
+    } */
 
     Ok(())
 }
