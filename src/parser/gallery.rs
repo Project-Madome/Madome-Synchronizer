@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use reqwest;
 use scraper::{Html, Selector};
 
-use crate::models::Metadata;
+use crate::models::{Metadata, MetadataBook};
 use crate::parser::Parser;
 
 pub struct Gallery {
@@ -101,7 +101,7 @@ impl Gallery {
 #[async_trait]
 impl Parser for Gallery {
     type RequestData = String;
-    type ParseData = Vec<Metadata>;
+    type ParseData = MetadataBook;
 
     async fn url(&self) -> anyhow::Result<String> {
         let gallery_url = format!("https://hitomi.la/galleries/{}.html", self.id);
@@ -149,11 +149,25 @@ impl Parser for Gallery {
     async fn parse(&self, request_data: Self::RequestData) -> anyhow::Result<Self::ParseData> {
         let document = Html::parse_document(request_data.as_str());
 
-        let id = Metadata::ID(Some(self.id));
+        // let id = Metadata::ID(Some(self.id));
         let characters = (self.parse_metadata(&document, Metadata::Characters(None)));
         let groups = self.parse_metadata(&document, Metadata::Groups(None));
 
-        Ok(vec![id, characters, groups])
+        let metadata_book = MetadataBook {
+            characters,
+            groups,
+            id: Metadata::ID(None),
+            title: Metadata::Title(None),
+            artists: Metadata::Artists(None),
+            series: Metadata::Series(None),
+            tags: Metadata::Tags(None),
+            language: Metadata::Language(None),
+            content_type: Metadata::ContentType(None),
+            created_at: Metadata::CreatedAt(None),
+            thumbnail_url: Metadata::ThumbnailURL(None),
+        };
+
+        Ok(metadata_book)
     }
 }
 

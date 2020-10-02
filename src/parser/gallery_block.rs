@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use reqwest;
 use scraper::{Html, Selector};
 
-use crate::models::{ContentType, Metadata};
+use crate::models::{ContentType, Language, Metadata, MetadataBook};
 use crate::parser::Parser;
 
 /// Can't parse Groups, Characters
@@ -118,12 +118,12 @@ impl GalleryBlock {
         Some(ContentType::from(self.parse_single_metadata(element)))
     }
 
-    pub fn parse_language(&self, element: scraper::ElementRef) -> Option<String> {
+    pub fn parse_language(&self, element: scraper::ElementRef) -> Option<Language> {
         if self.is_nothing(&element) {
             return None;
         }
 
-        Some(self.parse_single_metadata(element))
+        Some(Language::from(self.parse_single_metadata(element).as_str()))
     }
 
     pub fn parse_created_at(&self, fragment: &Html) -> Option<String> {
@@ -238,7 +238,7 @@ impl GalleryBlock {
 #[async_trait]
 impl Parser for GalleryBlock {
     type RequestData = String;
-    type ParseData = Vec<Metadata>;
+    type ParseData = MetadataBook;
 
     async fn url(&self) -> anyhow::Result<String> {
         Ok(format!(
@@ -274,7 +274,7 @@ impl Parser for GalleryBlock {
         let thumbnail_url = self.parse_metadata(&fragment, Metadata::ThumbnailURL(None));
         // let content_url = self.parse_metadata(&fragment, Metadata::ContentURL(None));
 
-        Ok(vec![
+        let metadata_book = MetadataBook {
             id,
             title,
             artists,
@@ -284,7 +284,11 @@ impl Parser for GalleryBlock {
             content_type,
             created_at,
             thumbnail_url,
-        ])
+            characters: Metadata::Characters(None),
+            groups: Metadata::Groups(None),
+        };
+
+        Ok(metadata_book)
     }
 }
 
@@ -294,6 +298,7 @@ mod tests {
 
     use super::ContentType;
     use super::GalleryBlock;
+    use super::Language;
     use super::Metadata;
     use super::Parser;
 
@@ -464,7 +469,7 @@ mod tests {
 
         let content_type = gallery_block.parse_metadata(&fragment, Metadata::Language(None));
 
-        let expected = Metadata::Language(Some("한국어".to_string()));
+        let expected = Metadata::Language(Some(Language::Korean));
 
         assert_eq!(expected, content_type);
 
