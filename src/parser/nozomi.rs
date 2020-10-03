@@ -5,6 +5,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use reqwest;
 
+use crate::models::Language;
+
 use super::Parser;
 
 /// # Nozomi Parser
@@ -18,11 +20,11 @@ pub struct Nozomi {
 }
 
 impl Nozomi {
-    pub fn new(page: usize, per_page: usize, language: String) -> Nozomi {
+    pub fn new(page: usize, per_page: usize, language: Language) -> Nozomi {
         Nozomi {
             page,
             per_page,
-            language,
+            language: language.into(),
         }
     }
 }
@@ -83,12 +85,14 @@ impl Parser for Nozomi {
 
 #[cfg(test)]
 mod test {
+    use crate::models::Language;
+
     use super::Nozomi;
     use super::Parser;
 
     #[tokio::test]
     async fn parse_nozomi() -> anyhow::Result<()> {
-        let nozomi = Nozomi::new(1, 25, "korean".to_string());
+        let nozomi = Nozomi::new(1, 25, Language::Korean);
 
         let rd = nozomi.request().await?;
 
@@ -101,7 +105,7 @@ mod test {
 
     #[tokio::test]
     async fn parse_nozomi_index_out_of_bounds() -> anyhow::Result<()> {
-        let nozomi = Nozomi::new(20, 1000000, "korean".to_string());
+        let nozomi = Nozomi::new(20, 1000000, Language::Korean);
 
         let rd = nozomi.request().await?;
         let pd = nozomi.parse(rd).await?;
