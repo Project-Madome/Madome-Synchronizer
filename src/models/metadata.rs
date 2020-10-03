@@ -145,6 +145,7 @@ impl From<&str> for Language {
 impl<'a> Into<&'a str> for Language {
     fn into(self) -> &'a str {
         match self {
+            Self::All => "all",
             Self::Korean => "korean",
             Self::Japanese => "japanese",
             Self::English => "english",
@@ -163,8 +164,7 @@ impl<'a> Into<&'a str> for Language {
             Self::Czech => "czech",
             Self::Indonesian => "indonesian",
             Self::Arabic => "arabic",
-
-            _ => panic!("Can't Language into &str"),
+            // _ => panic!("Can't Language into &str"),
         }
     }
 }
