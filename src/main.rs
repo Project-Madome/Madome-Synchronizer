@@ -1,53 +1,78 @@
 extern crate madome_synchronizer;
 
 use anyhow;
+use tokio;
 
-use crate::madome_synchronizer::models::Book;
+use crate::madome_synchronizer::models::{Book, Language};
 use crate::madome_synchronizer::parser;
 use crate::madome_synchronizer::parser::Parser;
 
+use crate::madome_synchronizer::utils::{await_futures, PinFuture};
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let nozomi = parser::Nozomi::new(30000, 25, "korean".to_string());
+    let nozomi = parser::Nozomi::new(1, 22, Language::Korean);
 
     let rd = nozomi.request().await?;
-    let pd = nozomi.parse(rd).await?;
+    let content_ids = nozomi.parse(rd).await?;
 
-    println!("Book IDs = {:?}", pd);
+    let image = parser::Image::new(content_ids[0]);
 
-    let content_id = *pd.iter().last().unwrap();
+    let image_rd = image.request().await?;
+    let image_pd = image.parse(image_rd).await?;
 
-    {
-        println!("-----------------------------------");
-        println!("Gallery");
+    println!("{:?}", image_pd);
 
-        let gallery = parser::Gallery::new(content_id);
+    /* let mut futures: Vec<PinFuture<Book>> = vec![];
 
-        let gallery_rd = gallery.request().await?;
+    for content_id in content_ids {
+        let f: PinFuture<Book> = Box::pin(async move {
+            println!("#{}", content_id);
+            let gallery = parser::Gallery::new(content_id);
+            let gallery_block = parser::GalleryBlock::new(content_id);
 
-        println!("{}", gallery_rd);
+            let gallery_rd = gallery.request();
+            let gallery_block_rd = gallery_block.request();
 
-        let gallery_pd = gallery.parse(gallery_rd).await?;
+            let gallery_rd = gallery_rd.await?;
+            let gallery_block_rd = gallery_block_rd.await?;
+            println!("Ready RequestData #{}", content_id);
 
-        println!("-----------------------------------");
-        println!("GalleryBlock");
+            let gallery_pd = gallery.parse(gallery_rd);
+            let gallery_block_pd = gallery_block.parse(gallery_block_rd);
 
-        let gallery_block = parser::GalleryBlock::new(content_id);
+            let gallery_pd = gallery_pd.await?;
+            let gallery_block_pd = gallery_block_pd.await?;
+            println!("Ready ParseData #{}", content_id);
 
-        let gallery_block_rd = gallery_block.request().await?;
+            let mut book = gallery_block_pd;
 
-        println!("{}", gallery_block_rd);
+            book.groups = gallery_pd.groups;
+            book.characters = gallery_pd.characters;
 
-        let mut gallery_block_pd = gallery_block.parse(gallery_block_rd).await?;
+            Ok(Book::from(book))
+        });
 
-        gallery_block_pd.characters = gallery_pd.characters;
-        gallery_block_pd.groups = gallery_pd.groups;
-
-        let book: Book = gallery_block_pd.into();
-
-        println!("book = {:?}", book);
+        futures.push(f);
     }
 
+    let books = await_futures(futures, 10).await;
+
+    println!("{:?}", books); */
+
+    // let content_id = *pd.iter().last().unwrap();
+
+    /* let mut a: Vec<dyn Future<Output = Book>> = vec![];
+
+    for content_id in content_ids {
+        let f: Box<dyn FnOnce() -> dyn Future<Output = anyhow::Result<Book>>> = Box::new(async || {
+
+        });
+    } */
+
+    /* {
+
+    } */
     /* {
         println!("Hello, world!");
 

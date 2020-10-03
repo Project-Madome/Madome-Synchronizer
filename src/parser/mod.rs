@@ -3,10 +3,12 @@ use async_trait::async_trait;
 
 mod gallery;
 mod gallery_block;
+mod image;
 mod nozomi;
 
 pub use gallery::Gallery;
 pub use gallery_block::GalleryBlock;
+pub use image::Image;
 pub use nozomi::Nozomi;
 
 #[async_trait]
