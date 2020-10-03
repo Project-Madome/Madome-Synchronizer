@@ -1,6 +1,6 @@
 use std::convert::Into;
 
-use super::{ContentType,Language, Metadata};
+use super::{ContentType, Language, Metadata};
 
 #[derive(Debug, PartialEq)]
 pub struct Book {
