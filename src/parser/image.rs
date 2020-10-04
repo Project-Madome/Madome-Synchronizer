@@ -1,5 +1,4 @@
 use std::char;
-use std::error;
 
 use anyhow;
 use async_trait::async_trait;
@@ -99,9 +98,24 @@ impl File {
     pub async fn download(&self, id: i32) -> anyhow::Result<Bytes> {
         let client = reqwest::Client::builder().build()?;
 
-        let bytes = client.get(self.url(id)?.as_str()).header("Referer", format!("https://hitomi.la/galleries/{}.html", id)).send().await?.bytes().await?;
+        let response = client
+            .get(self.url(id)?.as_str())
+            .header(
+                "Referer",
+                format!("https://hitomi.la/galleries/{}.html", id),
+            )
+            .send()
+            .await?;
 
-        Ok(bytes)
+        if response.status().is_success() {
+            let bytes = response.bytes().await?;
+            Ok(bytes)
+        } else {
+            Err(anyhow::Error::msg(format!(
+                "Image Download Error! {}",
+                response.status().to_string()
+            )))
+        }
     }
 }
 
