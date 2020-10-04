@@ -1,5 +1,7 @@
 extern crate madome_synchronizer;
 
+use std::fs;
+
 use anyhow;
 use tokio;
 
@@ -22,6 +24,14 @@ async fn main() -> anyhow::Result<()> {
     let image_pd = image.parse(image_rd).await?;
 
     println!("{:?}", image_pd);
+
+    let image_urls = image_pd[0].url(content_ids[0])?;
+
+    println!("{}", image_urls);
+
+    let image_bytes = image_pd[0].download(content_ids[0]).await?;
+
+    fs::write(format!("./.temp/{}", image_pd[0].name), image_bytes)?;
 
     /* let mut futures: Vec<PinFuture<Book>> = vec![];
 
