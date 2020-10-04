@@ -14,8 +14,14 @@ pub enum Metadata {
     ThumbnailURL(Option<String>),
 }
 
-impl Metadata {
-    pub fn as_str(&self) -> &str {
+impl<'a> Metadata {
+    pub fn as_str(&self) -> &'a str {
+        self.into()
+    }
+}
+
+impl<'a> Into<&'a str> for &Metadata {
+    fn into(self) -> &'a str {
         match self {
             Metadata::ID(_) => "ID",
             Metadata::Title(_) => "Title",
