@@ -22,15 +22,3 @@ pub trait Parser {
 
     async fn parse(&self, request_data: Self::RequestData) -> anyhow::Result<Self::ParseData>;
 }
-
-pub struct Hitomi;
-
-impl Hitomi {
-    pub async fn parse() -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    pub async fn download() -> anyhow::Result<()> {
-        Ok(())
-    }
-}

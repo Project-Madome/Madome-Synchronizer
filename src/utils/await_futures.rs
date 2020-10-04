@@ -42,9 +42,9 @@ pub async fn await_futures<T: Send + 'static>(
             tokio::spawn(async move {
                 let awaited = future.await.unwrap();
 
-                if let Err(err) = tx.send(awaited).await {
-                    panic!("{}", err);
-                }
+                tx.send(awaited).await.unwrap_or_else(|err| {
+                    panic!("Error occurs in tx.send() : {}", err);
+                });
             });
         }
     }
