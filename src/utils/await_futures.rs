@@ -3,6 +3,7 @@ use std::iter::IntoIterator;
 use std::pin::Pin;
 
 use anyhow;
+use log::{debug, error};
 use tokio;
 use tokio::sync::mpsc;
 
@@ -35,8 +36,11 @@ pub async fn await_futures<T: Send + 'static>(
     let mut r: Vec<T> = vec![];
 
     let futures_len = futures.len();
+    let futures = seperate(futures, concurrency_limit);
+    let mut i = 1;
 
-    for futs in seperate(futures, concurrency_limit) {
+    for futs in futures {
+        // debug!("//");
         for future in futs {
             let mut tx = tx.clone();
             tokio::spawn(async move {
@@ -47,13 +51,14 @@ pub async fn await_futures<T: Send + 'static>(
                 });
             });
         }
-    }
 
-    while let Some(awaited) = rx.recv().await {
-        r.push(awaited);
+        while let Some(awaited) = rx.recv().await {
+            r.push(awaited);
 
-        if r.len() == futures_len {
-            break;
+            if r.len() >= concurrency_limit * i || r.len() == futures_len {
+                i += 1;
+                break;
+            }
         }
     }
 
