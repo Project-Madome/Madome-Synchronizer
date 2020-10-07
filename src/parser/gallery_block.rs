@@ -9,11 +9,15 @@ use crate::parser::Parser;
 /// Can't parse Groups, Characters
 pub struct GalleryBlock {
     id: i32,
+    request_data: Option<Box<String>>,
 }
 
 impl GalleryBlock {
     pub fn new(id: i32) -> GalleryBlock {
-        GalleryBlock { id }
+        GalleryBlock {
+            id,
+            request_data: None,
+        }
     }
 
     pub fn parse_single_metadata(&self, element: scraper::ElementRef) -> String {
@@ -240,6 +244,13 @@ impl Parser for GalleryBlock {
     type RequestData = String;
     type ParseData = MetadataBook;
 
+    fn request_data(&self) -> anyhow::Result<&Box<Self::RequestData>> {
+        match self.request_data {
+            Some(ref rd) => Ok(rd),
+            None => Err(anyhow::Error::msg("Can't get request_data")),
+        }
+    }
+
     async fn url(&self) -> anyhow::Result<String> {
         Ok(format!(
             "https://ltn.hitomi.la/galleryblock/{}.html",
@@ -247,7 +258,7 @@ impl Parser for GalleryBlock {
         ))
     }
 
-    async fn request(&self) -> anyhow::Result<Self::RequestData> {
+    async fn request(mut self) -> anyhow::Result<Box<Self>> {
         let client = reqwest::Client::builder().build()?;
 
         let gallery_block_html = client
@@ -257,11 +268,13 @@ impl Parser for GalleryBlock {
             .text()
             .await?;
 
-        Ok(gallery_block_html)
+        self.request_data = Some(Box::new(gallery_block_html));
+
+        Ok(Box::new(self))
     }
 
-    async fn parse(&self, request_data: Self::RequestData) -> anyhow::Result<Self::ParseData> {
-        let fragment = Html::parse_fragment(request_data.as_str());
+    async fn parse(&self) -> anyhow::Result<Self::ParseData> {
+        let fragment = Html::parse_fragment(self.request_data()?.as_str());
 
         let id = Metadata::ID(Some(self.id));
         let title = self.parse_metadata(&fragment, Metadata::Title(None));
@@ -349,9 +362,9 @@ mod tests {
     async fn parse_title() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1399900);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let title = gallery_block.parse_metadata(&fragment, Metadata::Title(None));
 
@@ -366,9 +379,9 @@ mod tests {
     async fn parse_content_url() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1399900);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data.unwrap().as_str());
 
         let content_url = gallery_block.parse_metadata(&fragment, Metadata::ContentURL(None));
 
@@ -385,9 +398,9 @@ mod tests {
     async fn parse_thumbnail_url() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1399900);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let content_url = gallery_block.parse_metadata(&fragment, Metadata::ThumbnailURL(None));
 
@@ -405,9 +418,9 @@ mod tests {
     async fn parse_artists() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1399900);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let artists = gallery_block.parse_metadata(&fragment, Metadata::Artists(None));
 
@@ -446,9 +459,9 @@ mod tests {
     async fn parse_artists_is_nothing() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1722267);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let artists = gallery_block.parse_metadata(&fragment, Metadata::Artists(None));
 
@@ -463,9 +476,9 @@ mod tests {
     async fn parse_language() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1399900);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let content_type = gallery_block.parse_metadata(&fragment, Metadata::Language(None));
 
@@ -480,9 +493,9 @@ mod tests {
     async fn parse_content_type() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1399900);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let content_type = gallery_block.parse_metadata(&fragment, Metadata::ContentType(None));
 
@@ -497,9 +510,9 @@ mod tests {
     async fn parse_series() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1277807);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let series = gallery_block.parse_metadata(&fragment, Metadata::Series(None));
 
@@ -507,7 +520,7 @@ mod tests {
             "eromanga sensei",
             "nier automata",
             "ranma 12",
-            "sword art online",
+            "swogallery_block art online",
             "the idolmaster",
             "the melancholy of haruhi suzumiya",
             "to love-ru",
@@ -529,9 +542,9 @@ mod tests {
     async fn parse_series_is_nothing() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1399900);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let series_nothing = gallery_block.parse_metadata(&fragment, Metadata::Series(None));
 
@@ -546,9 +559,9 @@ mod tests {
     async fn parse_tags() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1724122);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let tags = gallery_block.parse_metadata(&fragment, Metadata::Tags(None));
 
@@ -568,9 +581,9 @@ mod tests {
     async fn parse_tags_is_nothing() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1686905);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let tags = gallery_block.parse_metadata(&fragment, Metadata::Tags(None));
 
@@ -585,9 +598,9 @@ mod tests {
     async fn parse_created_at() -> anyhow::Result<()> {
         let gallery_block = GalleryBlock::new(1724122);
 
-        let rd = gallery_block.request().await?;
+        let gallery_block = gallery_block.request().await?;
 
-        let fragment = Html::parse_fragment(rd.as_str());
+        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
 
         let created_at = gallery_block.parse_metadata(&fragment, Metadata::CreatedAt(None));
 

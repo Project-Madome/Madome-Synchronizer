@@ -8,17 +8,20 @@ mod nozomi;
 
 pub use gallery::Gallery;
 pub use gallery_block::GalleryBlock;
-pub use image::Image;
+pub use image::{File, Image};
 pub use nozomi::Nozomi;
 
 #[async_trait]
 pub trait Parser {
+    // self.request_data;
     type RequestData;
     type ParseData;
 
+    fn request_data(&self) -> anyhow::Result<&Box<Self::RequestData>>;
+
     async fn url(&self) -> anyhow::Result<String>;
 
-    async fn request(&self) -> anyhow::Result<Self::RequestData>;
+    async fn request(mut self) -> anyhow::Result<Box<Self>>;
 
-    async fn parse(&self, request_data: Self::RequestData) -> anyhow::Result<Self::ParseData>;
+    async fn parse(&self) -> anyhow::Result<Self::ParseData>;
 }

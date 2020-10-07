@@ -8,6 +8,7 @@ use crate::parser::Parser;
 
 pub struct Gallery {
     id: i32,
+    request_data: Option<Box<String>>,
 }
 
 /// ```html
@@ -30,7 +31,10 @@ pub struct Gallery {
 /// ```
 impl Gallery {
     pub fn new(id: i32) -> Gallery {
-        Gallery { id }
+        Gallery {
+            id,
+            request_data: None,
+        }
     }
 
     pub fn is_nothing(&self, element: &scraper::ElementRef<'_>) -> bool {
@@ -103,6 +107,13 @@ impl Parser for Gallery {
     type RequestData = String;
     type ParseData = MetadataBook;
 
+    fn request_data(&self) -> anyhow::Result<&Box<Self::RequestData>> {
+        match self.request_data {
+            Some(ref rd) => Ok(rd),
+            None => Err(anyhow::Error::msg("Can't get request_data")),
+        }
+    }
+
     async fn url(&self) -> anyhow::Result<String> {
         let gallery_url = format!("https://hitomi.la/galleries/{}.html", self.id);
 
@@ -129,7 +140,7 @@ impl Parser for Gallery {
         Ok(content_url)
     }
 
-    async fn request(&self) -> anyhow::Result<Self::RequestData> {
+    async fn request(mut self) -> anyhow::Result<Box<Self>> {
         let content_url = self.url().await?;
 
         let client = reqwest::Client::builder().build()?;
@@ -141,13 +152,14 @@ impl Parser for Gallery {
             .text()
             .await?;
 
-        Ok(content_html)
+        self.request_data = Some(Box::new(content_html));
+        Ok(Box::new(self))
     }
 
     /// Groups
     /// Charcters
-    async fn parse(&self, request_data: Self::RequestData) -> anyhow::Result<Self::ParseData> {
-        let document = Html::parse_document(request_data.as_str());
+    async fn parse(&self) -> anyhow::Result<Self::ParseData> {
+        let document = Html::parse_document(self.request_data()?.as_str());
 
         // let id = Metadata::ID(Some(self.id));
         let characters = (self.parse_metadata(&document, Metadata::Characters(None)));
@@ -183,9 +195,9 @@ mod tests {
     async fn parse_characters() -> anyhow::Result<()> {
         let gallery = Gallery::new(1277807);
 
-        let rd = gallery.request().await?;
+        let gallery = gallery.request().await?;
 
-        let document = Html::parse_document(rd.as_str());
+        let document = Html::parse_document(gallery.request_data()?.as_str());
 
         let characters = gallery.parse_metadata(&document, Metadata::Characters(None));
 
@@ -217,9 +229,9 @@ mod tests {
     async fn parse_characters_is_nothing() -> anyhow::Result<()> {
         let gallery = Gallery::new(1745756);
 
-        let rd = gallery.request().await?;
+        let gallery = gallery.request().await?;
 
-        let document = Html::parse_document(rd.as_str());
+        let document = Html::parse_document(gallery.request_data()?.as_str());
 
         let characters = gallery.parse_metadata(&document, Metadata::Characters(None));
 
@@ -234,9 +246,9 @@ mod tests {
     async fn parse_groups() -> anyhow::Result<()> {
         let gallery = Gallery::new(1705277);
 
-        let rd = gallery.request().await?;
+        let gallery = gallery.request().await?;
 
-        let document = Html::parse_document(rd.as_str());
+        let document = Html::parse_document(gallery.request_data()?.as_str());
 
         let groups = gallery.parse_metadata(&document, Metadata::Groups(None));
 
@@ -251,9 +263,9 @@ mod tests {
     async fn parse_groups_is_nothing() -> anyhow::Result<()> {
         let gallery = Gallery::new(1454325);
 
-        let rd = gallery.request().await?;
+        let gallery = gallery.request().await?;
 
-        let document = Html::parse_document(rd.as_str());
+        let document = Html::parse_document(gallery.request_data()?.as_str());
 
         let groups = gallery.parse_metadata(&document, Metadata::Groups(None));
 
