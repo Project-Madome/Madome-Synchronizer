@@ -520,7 +520,7 @@ mod tests {
             "eromanga sensei",
             "nier automata",
             "ranma 12",
-            "swogallery_block art online",
+            "sword art online",
             "the idolmaster",
             "the melancholy of haruhi suzumiya",
             "to love-ru",
