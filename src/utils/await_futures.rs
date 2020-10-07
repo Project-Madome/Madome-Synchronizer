@@ -25,44 +25,49 @@ fn seperate<T>(it: impl IntoIterator<Item = T>, by: usize) -> Vec<Vec<T>> {
     r
 }
 
-pub type PinFuture<T> = Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + 'static>>;
+pub type PinFuture<T> = Pin<Box<dyn Future<Output = Result<T, anyhow::Error>> + Send + 'static>>;
 
 pub async fn await_futures<T: Send + 'static>(
-    futures: Vec<Pin<Box<impl Future<Output = anyhow::Result<T>> + Send + 'static + ?Sized>>>,
+    futures: Vec<
+        Pin<Box<impl Future<Output = Result<T, anyhow::Error>> + Send + 'static + ?Sized>>,
+    >,
     concurrency_limit: usize,
-) -> Vec<T> {
-    let (tx, mut rx) = mpsc::channel::<T>(1);
-
-    let mut r: Vec<T> = vec![];
+) -> Result<Vec<T>, anyhow::Error> {
+    let (tx, mut rx) = mpsc::channel::<Result<T, anyhow::Error>>(1000);
 
     let futures_len = futures.len();
     let futures = seperate(futures, concurrency_limit);
-    let mut i = 1;
 
     for futs in futures {
         // debug!("//");
         for future in futs {
             let mut tx = tx.clone();
             tokio::spawn(async move {
-                let awaited = future.await.unwrap();
+                let awaited: Result<T, anyhow::Error> = future.await;
 
                 tx.send(awaited).await.unwrap_or_else(|err| {
-                    panic!("Error occurs in tx.send() : {}", err);
+                    error!("{}", err);
                 });
             });
         }
+    }
 
-        while let Some(awaited) = rx.recv().await {
-            r.push(awaited);
+    let mut i = 1;
+    let mut r: Vec<T> = vec![];
 
-            if r.len() >= concurrency_limit * i || r.len() == futures_len {
-                i += 1;
-                break;
-            }
+    while let Some(awaited) = rx.recv().await {
+        i += 1;
+        match awaited {
+            Ok(value) => r.push(value),
+            Err(err) => return Err(err),
+        }
+
+        if r.len() >= (concurrency_limit * i) || r.len() == futures_len {
+            break;
         }
     }
 
-    r
+    Ok(r)
 }
 
 #[cfg(test)]
@@ -93,7 +98,26 @@ mod tests {
 
         let expected = vec![1, 2, 3, 4, 5];
 
-        assert_eq!(expected, r);
+        assert_eq!(expected, r.unwrap());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_await_futures_failed() -> anyhow::Result<()> {
+        let a: Vec<PinFuture<i32>> = vec![
+            Box::pin(af(1)),
+            Box::pin(af(2)),
+            Box::pin(bf(3)),
+            Box::pin(af(4)),
+            Box::pin(af(5)),
+        ];
+
+        let r = await_futures(a, 2).await;
+
+        let expected = true;
+
+        assert_eq!(expected, r.is_err());
 
         Ok(())
     }
