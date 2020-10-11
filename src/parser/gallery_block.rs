@@ -1,19 +1,20 @@
 use anyhow;
 use async_trait::async_trait;
+use log::{debug, trace};
+use madome_client::book::{ContentType, Language, Metadata, MetadataBook};
 use reqwest;
 use scraper::{Html, Selector};
 
-use crate::models::{ContentType, Language, Metadata, MetadataBook};
 use crate::parser::Parser;
 
 /// Can't parse Groups, Characters
 pub struct GalleryBlock {
-    id: i32,
+    id: u32,
     request_data: Option<Box<String>>,
 }
 
 impl GalleryBlock {
-    pub fn new(id: i32) -> GalleryBlock {
+    pub fn new(id: u32) -> GalleryBlock {
         GalleryBlock {
             id,
             request_data: None,
@@ -130,6 +131,7 @@ impl GalleryBlock {
         Some(Language::from(self.parse_single_metadata(element).as_str()))
     }
 
+    /// uncomment on v2 api
     pub fn parse_created_at(&self, fragment: &Html) -> Option<String> {
         let date_selector = Selector::parse(".date").unwrap();
 
@@ -142,7 +144,7 @@ impl GalleryBlock {
             .unwrap()
             .trim();
 
-        let c = &date_str[..date_str.len() - 3];
+        /* let c = &date_str[..date_str.len() - 3];
 
         let cc = &date_str[c.len()..];
 
@@ -151,9 +153,9 @@ impl GalleryBlock {
         date_string.push_str(c);
         date_string.push(' ');
         date_string.push_str(cc);
-        date_string.push_str(":00");
+        date_string.push_str(":00"); */
 
-        Some(date_string)
+        Some(date_str.to_string())
     }
 
     pub fn parse_thumbnail_url(&self, fragment: &Html) -> String {
@@ -245,6 +247,7 @@ impl Parser for GalleryBlock {
     type ParseData = MetadataBook;
 
     fn request_data(&self) -> anyhow::Result<&Box<Self::RequestData>> {
+        trace!("GalleryBlock::request_data()");
         match self.request_data {
             Some(ref rd) => Ok(rd),
             None => Err(anyhow::Error::msg("Can't get request_data")),
@@ -252,6 +255,7 @@ impl Parser for GalleryBlock {
     }
 
     async fn url(&self) -> anyhow::Result<String> {
+        trace!("GalleryBlock::url()");
         Ok(format!(
             "https://ltn.hitomi.la/galleryblock/{}.html",
             self.id
@@ -259,6 +263,7 @@ impl Parser for GalleryBlock {
     }
 
     async fn request(mut self) -> anyhow::Result<Box<Self>> {
+        trace!("GalleryBlock::request()");
         let client = reqwest::Client::builder().build()?;
 
         let gallery_block_html = client
@@ -274,6 +279,7 @@ impl Parser for GalleryBlock {
     }
 
     async fn parse(&self) -> anyhow::Result<Self::ParseData> {
+        trace!("GalleryBlock::parse()");
         let fragment = Html::parse_fragment(self.request_data()?.as_str());
 
         let id = Metadata::ID(Some(self.id));
@@ -299,6 +305,7 @@ impl Parser for GalleryBlock {
             thumbnail_url,
             characters: Metadata::Characters(None),
             groups: Metadata::Groups(None),
+            page_count: Metadata::Page(None),
         };
 
         Ok(metadata_book)
