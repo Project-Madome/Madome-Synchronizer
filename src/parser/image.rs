@@ -3,7 +3,7 @@ use std::char;
 use anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
-use log::debug;
+use log::{debug, trace};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -11,12 +11,12 @@ use serde_json;
 use crate::parser::Parser;
 
 pub struct Image {
-    id: i32,
+    id: u32,
     request_data: Option<Box<String>>,
 }
 
 impl Image {
-    pub fn new(id: i32) -> Image {
+    pub fn new(id: u32) -> Image {
         Image {
             id,
             request_data: None,
@@ -26,14 +26,17 @@ impl Image {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct File {
-    pub width: i32,
-    pub height: i32,
+    pub width: u32,
+    pub height: u32,
     pub hash: String,
     pub haswebp: Option<u8>,
     pub hasavifsmalltn: Option<u8>,
     pub hasavif: Option<u8>,
     pub name: String,
 }
+
+pub type ImageURL = String;
+pub type ThumbnailURL = String;
 
 impl File {
     pub fn has_webp(&self) -> bool {
@@ -48,7 +51,8 @@ impl File {
         }
     }
 
-    pub fn url(&self, content_id: i32) -> anyhow::Result<String> {
+    pub fn url(&self, content_id: u32) -> anyhow::Result<(ImageURL, ThumbnailURL)> {
+        trace!("File::url()");
         let id_string = content_id.to_string();
         let mut id_chars = id_string.chars();
 
@@ -79,7 +83,7 @@ impl File {
 
         debug!("x {}", x);
 
-        if let Ok(mut x) =u32::from_str_radix(x.as_str(), 16) {
+        if let Ok(mut x) = u32::from_str_radix(x.as_str(), 16) {
             let mut n: u32 = 3;
 
             debug!("x {}", x);
@@ -96,7 +100,7 @@ impl File {
 
         debug!("2nd subdomain {}", subdomain);
 
-        let r = if self.has_webp() == false {
+        /* let image_url = if self.has_webp() == false {
             format!(
                 "https://{}a.hitomi.la/images/{}/{}{}/{}.{}",
                 subdomain,
@@ -115,18 +119,45 @@ impl File {
                 "https://{}a.hitomi.la/webp/{}/{}{}/{}.webp",
                 subdomain, postfix[2], postfix[0], postfix[1], self.hash
             )
-        };
+        }; */
 
-        debug!("image_url {}", r);
+        let image_url = format!(
+            "https://{}a.hitomi.la/images/{}/{}{}/{}.{}",
+            subdomain,
+            postfix[2],
+            postfix[0],
+            postfix[1],
+            self.hash,
+            self.name.split(".").last().unwrap()
+        );
 
-        Ok(r)
+        let thumbnail_url = format!(
+            "https://tn.hitomi.la/bigtn/{}/{}{}/{}.jpg",
+            postfix[2], postfix[0], postfix[1], self.hash
+        );
+
+        debug!("image_url = {}", image_url);
+        debug!("thumbnail_url = {}", thumbnail_url);
+
+        Ok((image_url, thumbnail_url))
     }
 
-    pub async fn download(&self, content_id: i32) -> anyhow::Result<Bytes> {
+    pub async fn download(&self, content_id: u32, is_thumbnail: bool) -> anyhow::Result<Bytes> {
+        let (image_url, thumbnail_url) = self.url(content_id)?;
+
+        if is_thumbnail {
+            self.download_(content_id, thumbnail_url).await
+        } else {
+            self.download_(content_id, image_url).await
+        }
+    }
+
+    async fn download_(&self, content_id: u32, url: String) -> anyhow::Result<Bytes> {
+        trace!("File::download()");
         let client = reqwest::Client::builder().build()?;
 
         let response = client
-            .get(self.url(content_id)?.as_str())
+            .get(url.as_str())
             .header(
                 "Referer",
                 format!("https://hitomi.la/reader/{}.html", content_id),
@@ -156,9 +187,10 @@ struct ImageInfo {
 #[async_trait]
 impl Parser for Image {
     type RequestData = String;
-    type ParseData = Vec<File>;
+    type ParseData = Vec<(usize, File)>;
 
     fn request_data(&self) -> anyhow::Result<&Box<Self::RequestData>> {
+        trace!("Image::request_data()");
         match self.request_data {
             Some(ref rd) => Ok(rd),
             None => Err(anyhow::Error::msg("Can't get request_data")),
@@ -166,10 +198,12 @@ impl Parser for Image {
     }
 
     async fn url(&self) -> anyhow::Result<String> {
+        trace!("Image::url()");
         Ok(format!("https://ltn.hitomi.la/galleries/{}.js", self.id))
     }
 
     async fn request(mut self) -> anyhow::Result<Box<Self>> {
+        trace!("Image::request()");
         let client = reqwest::Client::builder().build()?;
 
         let rd = client
@@ -186,6 +220,7 @@ impl Parser for Image {
     }
 
     async fn parse(&self) -> anyhow::Result<Self::ParseData> {
+        trace!("Image::parse()");
         let ref request_data = match self.request_data {
             Some(ref rd) => rd,
             None => return Err(anyhow::Error::msg("Can't get request_data")),
@@ -193,7 +228,14 @@ impl Parser for Image {
 
         let image_info = serde_json::from_str::<'_, ImageInfo>(request_data.as_str())?;
 
-        Ok(image_info.files)
+        let files = image_info
+            .files
+            .into_iter()
+            .enumerate()
+            .map(|(page, file)| (page + 1, file))
+            .collect::<Vec<_>>();
+
+        Ok(files)
     }
 }
 
