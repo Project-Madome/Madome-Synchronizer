@@ -11,17 +11,13 @@ use std::time::Duration;
 use anyhow;
 use bytes::Bytes;
 use env_logger;
-use futures::stream::{self, StreamExt};
 use itertools::Itertools;
 use log::{debug, error, info, trace, warn};
 use madome_client::auth::Token;
 use madome_client::book::{Book, Language, MetadataBook};
-use madome_client::{AuthClient, BookClient, Client, FileClient};
+use madome_client::{AuthClient, BookClient, FileClient};
 use tokio;
 
-use fp_core::chain::Chain;
-use fp_core::extend::Extend;
-use fp_core::hkt::HKT;
 use fp_core::lens::Lens;
 
 use crate::madome_synchronizer::parser;
@@ -175,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
     // download image and upload image
 
     let mut page: usize = 1;
+    let per_page: usize = 25;
 
     'a: loop {
         let token = fs::read("./.token")?;
@@ -186,54 +183,43 @@ async fn main() -> anyhow::Result<()> {
 
         let mut non_exists_ids = vec![];
 
-        'b: loop {
-            trace!("Parsing IDs");
-            let nozomi_parser = parser::Nozomi::new(page, 50, Language::Korean)
-                .request()
-                .await?;
+        trace!("Parsing IDs");
+        let nozomi_parser = parser::Nozomi::new(page, per_page, Language::Korean)
+            .request()
+            .await?;
 
-            let is_not_fail = |id: &u32| !fails.has(id);
+        let is_not_fail = |id: &u32| !fails.has(id);
 
-            let content_ids = nozomi_parser
-                .parse()
-                .await?
-                .into_iter()
-                .filter(is_not_fail)
-                .collect::<Vec<_>>();
+        let content_ids = nozomi_parser
+            .parse()
+            .await?
+            .into_iter()
+            .filter(is_not_fail)
+            .collect::<Vec<_>>();
 
-            // content_ids.sort_by(|a, b| a.cmp(b));
+        // content_ids.sort_by(|a, b| a.cmp(b));
 
-            debug!("{} page ids = {:?}", page, content_ids);
+        debug!("{} page ids = {:?}", page, content_ids);
 
-            let last_id_of_page = content_ids.last().unwrap();
-
-            if let Ok(_) = book_client
-                .get_image_list(TokenLens::get(&token).unwrap(), *last_id_of_page)
+        for id in content_ids {
+            if let Err(err) = book_client
+                .get_image_list(TokenLens::get(&token).unwrap(), id)
                 .await
             {
-                break 'b;
-            }
-
-            for id in content_ids {
-                if let Err(err) = book_client
-                    .get_image_list(TokenLens::get(&token).unwrap(), id)
-                    .await
+                if err
+                    .to_string()
+                    .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())
                 {
-                    if err
-                        .to_string()
-                        .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())
-                    {
-                        non_exists_ids.push(id);
-                    }
+                    non_exists_ids.push(id);
                 }
             }
-
-            // debug!("non_exists_ids = {:?}", non_exists_ids);
-
-            break 'b;
-
-            page += 1;
         }
+
+        // debug!("non_exists_ids = {:?}", non_exists_ids);
+
+        debug!("page = {}", page);
+
+        debug!("non_exists_ids = {:?}", non_exists_ids);
 
         if non_exists_ids.is_empty() {
             page = 0;
@@ -251,7 +237,7 @@ async fn main() -> anyhow::Result<()> {
         let fails = Arc::new(Mutex::new(ParseFails::from_file("./fails.txt")?));
 
         // upload books info
-        let _ = fetch_books(vec![non_exists_ids[0]])
+        let _ = fetch_books(non_exists_ids)
             .await?
             .into_iter()
             .map(|book| {
@@ -409,8 +395,8 @@ async fn main() -> anyhow::Result<()> {
             .await_futures()
             .await;
 
-        break 'a;
+        page += 1;
     }
 
-    Ok(())
+    // Ok(())
 }
