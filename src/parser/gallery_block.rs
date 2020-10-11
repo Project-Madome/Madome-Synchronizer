@@ -611,7 +611,10 @@ mod tests {
 
         let created_at = gallery_block.parse_metadata(&fragment, Metadata::CreatedAt(None));
 
-        let expected = Metadata::CreatedAt(Some("2020-09-02 10:01:00 -05:00".to_string()));
+        // uncomment v2
+        // let expected = Metadata::CreatedAt(Some("2020-09-02 10:01:00 -05:00".to_string()));
+
+        let expected = Metadata::CreatedAt(Some("2020-09-02 10:01:00-05".to_string()));
 
         assert_eq!(expected, created_at);
 
