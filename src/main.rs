@@ -181,7 +181,7 @@ async fn sync() -> anyhow::Result<()> {
 
     'a: loop {
         let token = fs::read("./.token")?;
-        let token = String::from_utf8(token)?;
+        let token = String::from_utf8(token)?.trim().to_string();
         debug!("{}", token);
         let token = Token { token };
         let token = TokenManage::refresh(&auth_client, Arc::new(token)).await?;
