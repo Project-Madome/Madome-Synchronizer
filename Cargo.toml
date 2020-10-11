@@ -21,4 +21,4 @@ env_logger = "0.7.1"
 futures = "0.3.6"
 fp-core = "0.1.9"
 itertools = "0.9"
-madome_client = { path = "../Madome-API-rs" }
+madome_client = { version = "0.2.0" }
