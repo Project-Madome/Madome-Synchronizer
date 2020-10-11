@@ -75,6 +75,16 @@ impl Gallery {
         Some(groups)
     }
 
+    pub fn parse_tags(&self, element: scraper::ElementRef) -> Option<Vec<String>> {
+        let tags = self.parse_multiple_metadata(element);
+
+        if tags.is_empty() {
+            return None;
+        }
+
+        Some(tags)
+    }
+
     pub fn parse_metadata(&self, document: &Html, metadata_type: Metadata) -> Metadata {
         let gallery_info_selector = Selector::parse(".gallery-info > table").unwrap();
         let tr_selector = Selector::parse("tr").unwrap();
@@ -98,6 +108,7 @@ impl Gallery {
         match metadata_type {
             Metadata::Characters(_) => Metadata::Characters(self.parse_characters(r)),
             Metadata::Groups(_) => Metadata::Groups(self.parse_groups(r)),
+            Metadata::Tags(_) => Metadata::Tags(self.parse_tags(r)),
             _ => metadata_type,
         }
     }
@@ -196,6 +207,45 @@ mod tests {
 
     use super::Gallery;
     use super::Parser;
+
+    #[tokio::test]
+    async fn parse_tags() -> anyhow::Result<()> {
+        let gallery = Gallery::new(1724122);
+
+        let gallery = gallery.request().await?;
+
+        let document = Html::parse_document(gallery.request_data()?.as_str());
+
+        let tags = gallery.parse_metadata(&document, Metadata::Tags(None));
+
+        let expected = Metadata::Tags(Some(
+            ["footjob ♀", "loli ♀", "sister ♀", "incest"]
+                .iter()
+                .map(|a| a.to_string())
+                .collect(),
+        ));
+
+        assert_eq!(expected, tags);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parse_tags_is_nothing() -> anyhow::Result<()> {
+        let gallery = Gallery::new(1752881);
+
+        let gallery = gallery.request().await?;
+
+        let document = Html::parse_document(gallery.request_data()?.as_str());
+
+        let tags = gallery.parse_metadata(&document, Metadata::Tags(None));
+
+        let expected = Metadata::Tags(None);
+
+        assert_eq!(expected, tags);
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn parse_characters() -> anyhow::Result<()> {
