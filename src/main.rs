@@ -155,7 +155,13 @@ impl ParseFails {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
+    if let Err(err) = sync().await {
+        error!("{:?}", err);
+    }
+}
+
+async fn sync() -> anyhow::Result<()> {
     init_logger();
 
     // let client = Arc::new(Client::new("https://api.madome.app"));
@@ -349,7 +355,7 @@ async fn main() -> anyhow::Result<()> {
                             }
                             Err(err) => {
                                 trace!("Failed id = {}", book.id);
-                                error!("{}", err);
+                                error!("{:?}", err);
                                 fails.lock().unwrap().add(book.id)?;
                                 fails.lock().unwrap().synchronize("./fails.txt")?;
                                 return Err(err);
