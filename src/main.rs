@@ -177,7 +177,7 @@ async fn sync() -> anyhow::Result<()> {
     // download image and upload image
 
     let mut page: usize = 1;
-    let per_page: usize = 25;
+    let per_page: usize = 10;
 
     'a: loop {
         let token = fs::read("./.token")?;
@@ -266,6 +266,8 @@ async fn sync() -> anyhow::Result<()> {
                     debug!("seperated by 15 image_files = {:?}", seperated_image_files);
 
                     'c: for files in seperated_image_files {
+                        sleep(Duration::from_secs(2));
+
                         let book = Arc::clone(&book);
                         let file_client = Arc::clone(&file_client);
                         let token = Arc::clone(&token);
