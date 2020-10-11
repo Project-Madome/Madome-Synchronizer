@@ -177,7 +177,7 @@ async fn sync() -> anyhow::Result<()> {
     // download image and upload image
 
     let mut page: usize = 1;
-    let per_page: usize = 10;
+    let per_page: usize = 100;
 
     'a: loop {
         let token = fs::read("./.token")?;
@@ -224,7 +224,6 @@ async fn sync() -> anyhow::Result<()> {
         // debug!("non_exists_ids = {:?}", non_exists_ids);
 
         debug!("page = {}", page);
-
         debug!("non_exists_ids = {:?}", non_exists_ids);
 
         if non_exists_ids.is_empty() {
@@ -243,165 +242,172 @@ async fn sync() -> anyhow::Result<()> {
         let fails = Arc::new(Mutex::new(ParseFails::from_file("./fails.txt")?));
 
         // upload books info
-        let _ = fetch_books(non_exists_ids)
-            .await?
-            .into_iter()
-            .map(|book| {
-                let file_client = Arc::clone(&file_client);
-                let book_client = Arc::clone(&book_client);
-                let token = Arc::clone(&token);
-                let book = Arc::new(book);
-                let fails = Arc::clone(&fails);
-                Box::pin(async move {
-                    let image_parser = parser::Image::new(book.id);
-                    let image_files = image_parser.request().await?.parse().await?;
-                    // let image_files = vec![image_files.into_iter().last().unwrap()];
+        for ids in non_exists_ids.seperate(10) {
+            let _ = fetch_books(ids)
+                .await?
+                .into_iter()
+                .map(|book| {
+                    let file_client = Arc::clone(&file_client);
+                    let book_client = Arc::clone(&book_client);
+                    let token = Arc::clone(&token);
+                    let book = Arc::new(book);
+                    let fails = Arc::clone(&fails);
+                    Box::pin(async move {
+                        let image_parser = parser::Image::new(book.id);
+                        let image_files = image_parser.request().await?.parse().await?;
+                        // let image_files = vec![image_files.into_iter().last().unwrap()];
 
-                    debug!("image_files_len = {:?}", image_files.len());
+                        debug!("image_files_len = {:?}", image_files.len());
 
-                    let mut image_list: Vec<(String, usize)> = vec![];
+                        let mut image_list: Vec<(String, usize)> = vec![];
 
-                    let seperated_image_files = image_files.seperate(15);
+                        let seperated_image_files = image_files.seperate(15);
 
-                    debug!("seperated by 15 image_files = {:?}", seperated_image_files);
+                        debug!("seperated by 15 image_files = {:?}", seperated_image_files);
 
-                    'c: for files in seperated_image_files {
-                        sleep(Duration::from_secs(2));
+                        'c: for files in seperated_image_files {
+                            sleep(Duration::from_secs(2));
 
-                        let book = Arc::clone(&book);
-                        let file_client = Arc::clone(&file_client);
-                        let token = Arc::clone(&token);
+                            let book = Arc::clone(&book);
+                            let file_client = Arc::clone(&file_client);
+                            let token = Arc::clone(&token);
 
-                        let r = files
-                            .into_iter()
-                            .map(|(page, file)| {
-                                let book = Arc::clone(&book);
-                                let file_client = Arc::clone(&file_client);
-                                let token = Arc::clone(&token);
-                                Box::pin(async move {
-                                    if page == 1 {
-                                        let thumbnail_bytes = file.download(book.id, true).await?;
+                            let r = files
+                                .into_iter()
+                                .map(|(page, file)| {
+                                    let book = Arc::clone(&book);
+                                    let file_client = Arc::clone(&file_client);
+                                    let token = Arc::clone(&token);
+                                    Box::pin(async move {
+                                        if page == 1 {
+                                            let thumbnail_bytes =
+                                                file.download(book.id, true).await?;
 
-                                        trace!("download finish\nid = {}\nthumbnail", book.id);
+                                            trace!("download finish\nid = {}\nthumbnail", book.id);
+
+                                            let filepath =
+                                                format!("image/library/{}/thumbnail.jpg", book.id);
+
+                                            file_client
+                                                .upload(
+                                                    TokenLens::get(&token).unwrap(),
+                                                    filepath.as_str(),
+                                                    thumbnail_bytes,
+                                                )
+                                                .await?;
+
+                                            trace!(
+                                                "upload finish\nid = {}\nilepath = {}",
+                                                book.id,
+                                                filepath
+                                            );
+                                        }
+
+                                        let ext = Path::new(file.name.as_str())
+                                            .extension()
+                                            .unwrap_or(OsStr::new("img"));
+                                        let ext = ext.to_str().unwrap();
+
+                                        debug!(
+                                            "id = {}\nimage_page = {}\next = {}",
+                                            book.id, page, ext
+                                        );
+
+                                        let image_bytes = file.download(book.id, false).await?;
+
+                                        trace!(
+                                            "download finish\nid = {}\npage = {}\next = {}",
+                                            book.id,
+                                            page,
+                                            ext
+                                        );
 
                                         let filepath =
-                                            format!("image/library/{}/thumbnail.jpg", book.id);
+                                            format!("image/library/{}/{}.{}", book.id, page, ext);
 
                                         file_client
                                             .upload(
                                                 TokenLens::get(&token).unwrap(),
                                                 filepath.as_str(),
-                                                thumbnail_bytes,
+                                                image_bytes,
                                             )
                                             .await?;
 
                                         trace!(
-                                            "upload finish\nid = {}\nilepath = {}",
+                                            "upload finish\nid = {}\nfilepath = {}",
                                             book.id,
                                             filepath
                                         );
+
+                                        Ok((
+                                            format!("{}/v1/{}", FILE_REPOSITORY_URL, filepath),
+                                            page,
+                                        ))
+                                    })
+                                        as PinFuture<(String, usize)>
+                                })
+                                .collect::<Vec<_>>()
+                                .await_futures()
+                                .await;
+
+                            trace!("sep end");
+
+                            match r {
+                                Ok(mut images) => {
+                                    images.sort_by(|(_, a_page), (_, b_page)| a_page.cmp(b_page));
+                                    for image in images {
+                                        image_list.push(image);
                                     }
-
-                                    let ext = Path::new(file.name.as_str())
-                                        .extension()
-                                        .unwrap_or(OsStr::new("img"));
-                                    let ext = ext.to_str().unwrap();
-
-                                    debug!(
-                                        "id = {}\nimage_page = {}\next = {}",
-                                        book.id, page, ext
-                                    );
-
-                                    let image_bytes = file.download(book.id, false).await?;
-
-                                    trace!(
-                                        "download finish\nid = {}\npage = {}\next = {}",
-                                        book.id,
-                                        page,
-                                        ext
-                                    );
-
-                                    let filepath =
-                                        format!("image/library/{}/{}.{}", book.id, page, ext);
-
-                                    file_client
-                                        .upload(
-                                            TokenLens::get(&token).unwrap(),
-                                            filepath.as_str(),
-                                            image_bytes,
-                                        )
-                                        .await?;
-
-                                    trace!(
-                                        "upload finish\nid = {}\nfilepath = {}",
-                                        book.id,
-                                        filepath
-                                    );
-
-                                    Ok((format!("{}/v1/{}", FILE_REPOSITORY_URL, filepath), page))
-                                }) as PinFuture<(String, usize)>
-                            })
-                            .collect::<Vec<_>>()
-                            .await_futures()
-                            .await;
-
-                        trace!("sep end");
-
-                        match r {
-                            Ok(mut images) => {
-                                images.sort_by(|(_, a_page), (_, b_page)| a_page.cmp(b_page));
-                                for image in images {
-                                    image_list.push(image);
+                                    continue 'c;
                                 }
-                                continue 'c;
-                            }
-                            Err(err) => {
-                                trace!("Failed id = {}", book.id);
-                                error!("{:?}", err);
-                                fails.lock().unwrap().add(book.id)?;
-                                fails.lock().unwrap().synchronize("./fails.txt")?;
-                                return Err(err);
+                                Err(err) => {
+                                    trace!("Failed id = {}", book.id);
+                                    error!("{:?}", err);
+                                    fails.lock().unwrap().add(book.id)?;
+                                    fails.lock().unwrap().synchronize("./fails.txt")?;
+                                    return Err(err);
+                                }
                             }
                         }
-                    }
 
-                    debug!("image_list = {:?}", image_list);
+                        debug!("image_list = {:?}", image_list);
 
-                    trace!("upload book info id = {}", book.id);
-                    image_list.sort_by(|(_, a), (_, b)| a.cmp(b));
+                        trace!("upload book info id = {}", book.id);
+                        image_list.sort_by(|(_, a), (_, b)| a.cmp(b));
 
-                    let image_list_len = image_list.len();
+                        let image_list_len = image_list.len();
 
-                    let image_list = image_list
-                        .into_iter()
-                        // .unique()
-                        .map(|(url, _)| url)
-                        .join("\n");
+                        let image_list = image_list
+                            .into_iter()
+                            // .unique()
+                            .map(|(url, _)| url)
+                            .join("\n");
 
-                    debug!("image_list.txt = {}", image_list);
+                        debug!("image_list.txt = {}", image_list);
 
-                    let token = TokenLens::get(&token).unwrap();
-                    file_client
-                        .upload(
-                            token,
-                            format!("image/library/{}/image_list.txt", book.id).as_str(),
-                            Bytes::from(image_list),
-                        )
-                        .await?;
+                        let token = TokenLens::get(&token).unwrap();
+                        file_client
+                            .upload(
+                                token,
+                                format!("image/library/{}/image_list.txt", book.id).as_str(),
+                                Bytes::from(image_list),
+                            )
+                            .await?;
 
-                    let mut book: Book = book.into();
-                    book.page_count = image_list_len;
+                        let mut book: Book = book.into();
+                        book.page_count = image_list_len;
 
-                    debug!("book = {:?}", book);
+                        debug!("book = {:?}", book);
 
-                    book_client.create_book(token, book).await?;
+                        book_client.create_book(token, book).await?;
 
-                    Ok(())
-                }) as PinFuture<_>
-            })
-            .collect::<Vec<_>>()
-            .await_futures()
-            .await;
+                        Ok(())
+                    }) as PinFuture<_>
+                })
+                .collect::<Vec<_>>()
+                .await_futures()
+                .await;
+        }
 
         page += 1;
     }
