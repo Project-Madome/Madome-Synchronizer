@@ -1,13 +1,14 @@
 use anyhow;
 use async_trait::async_trait;
+use log::{debug, trace};
+use madome_client::book::{Metadata, MetadataBook};
 use reqwest;
 use scraper::{Html, Selector};
 
-use crate::models::{Metadata, MetadataBook};
 use crate::parser::Parser;
 
 pub struct Gallery {
-    id: i32,
+    id: u32,
     request_data: Option<Box<String>>,
 }
 
@@ -30,7 +31,7 @@ pub struct Gallery {
 /// </html>
 /// ```
 impl Gallery {
-    pub fn new(id: i32) -> Gallery {
+    pub fn new(id: u32) -> Gallery {
         Gallery {
             id,
             request_data: None,
@@ -108,6 +109,7 @@ impl Parser for Gallery {
     type ParseData = MetadataBook;
 
     fn request_data(&self) -> anyhow::Result<&Box<Self::RequestData>> {
+        trace!("Gallery::request_data()");
         match self.request_data {
             Some(ref rd) => Ok(rd),
             None => Err(anyhow::Error::msg("Can't get request_data")),
@@ -115,6 +117,7 @@ impl Parser for Gallery {
     }
 
     async fn url(&self) -> anyhow::Result<String> {
+        trace!("Gallery::url()");
         let gallery_url = format!("https://hitomi.la/galleries/{}.html", self.id);
 
         let client = reqwest::Client::builder().build()?;
@@ -141,6 +144,7 @@ impl Parser for Gallery {
     }
 
     async fn request(mut self) -> anyhow::Result<Box<Self>> {
+        trace!("Gallery::request()");
         let content_url = self.url().await?;
 
         let client = reqwest::Client::builder().build()?;
@@ -159,6 +163,7 @@ impl Parser for Gallery {
     /// Groups
     /// Charcters
     async fn parse(&self) -> anyhow::Result<Self::ParseData> {
+        trace!("Gallery::parse()");
         let document = Html::parse_document(self.request_data()?.as_str());
 
         // let id = Metadata::ID(Some(self.id));
@@ -177,6 +182,7 @@ impl Parser for Gallery {
             content_type: Metadata::ContentType(None),
             created_at: Metadata::CreatedAt(None),
             thumbnail_url: Metadata::ThumbnailURL(None),
+            page_count: Metadata::Page(None),
         };
 
         Ok(metadata_book)
@@ -185,10 +191,10 @@ impl Parser for Gallery {
 
 #[cfg(test)]
 mod tests {
+    use madome_client::book::Metadata;
     use scraper::Html;
 
     use super::Gallery;
-    use super::Metadata;
     use super::Parser;
 
     #[tokio::test]
