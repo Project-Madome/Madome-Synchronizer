@@ -3,11 +3,23 @@ pub mod parser;
 pub mod utils;
 
 pub mod stage {
-    use log::{debug, error};
+    use log::{error, info};
+    use madome_client::book::Book;
 
     pub enum Stage {
         Download,
         Upload,
+    }
+
+    pub struct ParseStage;
+
+    impl ParseStage {
+        pub fn update(r: &anyhow::Result<Book>) {
+            match r {
+                Ok(book) => info!("parse finish\nid = {}\ntitle = {}", book.id, book.title),
+                Err(err) => error!("parse error\n{:?}", err),
+            }
+        }
     }
 
     type DownloadStageInner = (u32, usize, String);
@@ -16,7 +28,7 @@ pub mod stage {
     impl DownloadStage {
         pub fn update(r: &anyhow::Result<DownloadStageInner>) {
             match r {
-                Ok((id, current_page, ext)) => debug!(
+                Ok((id, current_page, ext)) => info!(
                     "download finish\nid = {}\npage = {}\next = {}",
                     id, current_page, ext
                 ),
@@ -32,12 +44,18 @@ pub mod stage {
     impl UploadStage {
         pub fn update(r: &anyhow::Result<UploadStageInner>) {
             match r {
-                Ok((url_path, current_page)) => debug!(
+                Ok((url_path, current_page)) => info!(
                     "upload finish\nurl_path = {}\npage = {}",
                     url_path, current_page
                 ),
                 Err(err) => error!("upload error\n{:?}", err),
             }
         }
+    }
+
+    pub struct CompleteStage;
+
+    impl CompleteStage {
+        pub fn update(r: &anyhow::Result<()>) {}
     }
 }

@@ -24,7 +24,7 @@ use fp_core::lens::Lens;
 use crate::madome_synchronizer::parser;
 use crate::madome_synchronizer::parser::Parser;
 
-use crate::madome_synchronizer::stage::{DownloadStage, UploadStage};
+use crate::madome_synchronizer::stage::{DownloadStage, ParseStage, UploadStage};
 use crate::madome_synchronizer::utils::{Flat, IntoResultVec, VecUtil};
 
 static MADOME_URL: &'static str = "https://api.madome.app";
@@ -231,6 +231,7 @@ fn sync() -> anyhow::Result<()> {
 
                     Ok(Book::from(gallery_block_data))
                 })
+                .inspect(ParseStage::update)
                 .map(|r| -> anyhow::Result<()> {
                     let book = r?;
                     let image_parser = parser::Image::new(book.id);
@@ -299,7 +300,7 @@ fn sync() -> anyhow::Result<()> {
                         .collect::<Vec<Result<(String, usize), _>>>()
                         .into_result_vec()?;
 
-                    upload_result.par_sort_by(|(_, a), (_, b)| a.cmp(b));
+                    upload_result.sort_by(|(_, a), (_, b)| a.cmp(b));
 
                     let image_list_txt =
                         upload_result
@@ -322,7 +323,7 @@ fn sync() -> anyhow::Result<()> {
                     let mut book: Book = book.into();
                     book.page_count = image_files_len;
 
-                    debug!("book = {:?}", book);
+                    info!("book = {:?}", book);
 
                     book_client.create_book(token, book)?;
 
@@ -341,6 +342,9 @@ fn sync() -> anyhow::Result<()> {
                             .expect("Can't synchronize fails");
                     }
                 });
+
+            ids.par_iter()
+                .try_for_each(|id| fs::remove_dir_all(format!("{}/{}", TEMP_DIR, id)))?;
         }
 
         // break 'a;
