@@ -1,20 +1,13 @@
-use anyhow;
-use async_trait::async_trait;
+use std::fs::ReadDir;
 
-mod await_futures;
+use anyhow;
+use rayon::iter::IntoParallelIterator;
+
 mod flat;
 mod seperate;
 
-pub use await_futures::{await_futures, PinFuture};
 pub use flat::flat;
 pub use seperate::seperate;
-
-#[async_trait]
-pub trait FutureUtil {
-    type Item;
-
-    async fn await_futures(self) -> anyhow::Result<Vec<Self::Item>>;
-}
 
 pub trait VecUtil {
     type Item;
@@ -26,15 +19,6 @@ pub trait Flat {
     type Item;
 
     fn flat(self) -> Vec<Self::Item>;
-}
-
-#[async_trait]
-impl<T: Send + 'static> FutureUtil for Vec<PinFuture<T>> {
-    type Item = T;
-
-    async fn await_futures(self) -> anyhow::Result<Vec<Self::Item>> {
-        await_futures(self).await
-    }
 }
 
 impl<T> VecUtil for Vec<T> {
@@ -50,5 +34,24 @@ impl<T> Flat for Vec<Vec<T>> {
 
     fn flat(self) -> Vec<Self::Item> {
         flat(self)
+    }
+}
+
+pub trait IntoResultVec<T, E> {
+    fn into_result_vec(self) -> Result<Vec<T>, E>;
+}
+
+impl<T, E> IntoResultVec<T, E> for Vec<Result<T, E>> {
+    fn into_result_vec(self) -> Result<Vec<T>, E> {
+        let mut r: Vec<T> = vec![];
+
+        for elem in self {
+            match elem {
+                Ok(elem) => r.push(elem),
+                Err(err) => return Err(err),
+            }
+        }
+
+        Ok(r)
     }
 }
