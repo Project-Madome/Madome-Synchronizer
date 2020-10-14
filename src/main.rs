@@ -105,7 +105,7 @@ impl ParseFails {
     pub fn from_file(path: &str) -> anyhow::Result<Self> {
         let fails = fs::read_to_string(path)?;
 
-        if fails.is_empty() {
+        if fails.trim().is_empty() {
             return Ok(Self {
                 fails: HashSet::new(),
             });
@@ -116,7 +116,7 @@ impl ParseFails {
         let fails = fails
             .trim()
             .split("\n")
-            .map(|s| u32::from_str_radix(s, 10).unwrap())
+            .filter_map(|s| s.parse::<u32>().ok())
             .collect::<HashSet<_>>();
 
         Ok(Self { fails })
