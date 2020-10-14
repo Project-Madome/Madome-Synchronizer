@@ -256,6 +256,7 @@ fn sync() -> anyhow::Result<()> {
                         .par_iter()
                         .enumerate()
                         .map(|(current_page, file)| {
+                            let current_page = current_page + 1;
                             let (origin_url, buf) = file.download(book.id, false)?;
                             let ext = origin_url.split(".").last().unwrap().to_string();
                             fs::write(
