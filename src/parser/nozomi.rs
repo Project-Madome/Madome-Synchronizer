@@ -1,7 +1,6 @@
 use std::convert::TryInto;
 
 use anyhow;
-use async_trait::async_trait;
 use bytes::Bytes;
 use log::{debug, trace};
 use madome_client::book::Language;
@@ -31,7 +30,6 @@ impl Nozomi {
     }
 }
 
-#[async_trait]
 impl Parser for Nozomi {
     type RequestData = Bytes;
     type ParseData = Vec<u32>;
@@ -43,16 +41,16 @@ impl Parser for Nozomi {
         }
     }
 
-    async fn url(&self) -> anyhow::Result<String> {
+    fn url(&self) -> anyhow::Result<String> {
         Ok(format!(
             "https://ltn.hitomi.la/index-{}.nozomi",
             self.language.to_lowercase()
         ))
     }
 
-    async fn request(mut self) -> anyhow::Result<Box<Self>> {
+    fn request(mut self) -> anyhow::Result<Box<Self>> {
         trace!("Nozomi::request()");
-        let client = reqwest::Client::builder().build()?;
+        let client = reqwest::blocking::Client::builder().build()?;
 
         let start_bytes = (self.page - 1) * self.per_page * 4;
         let end_bytes = start_bytes + self.per_page * 4 - 1;
@@ -61,18 +59,16 @@ impl Parser for Nozomi {
         debug!("end_bytes = {}", end_bytes);
 
         let bytes = client
-            .get(self.url().await?.as_str())
+            .get(self.url()?.as_str())
             .header("Range", format!("bytes={}-{}", start_bytes, end_bytes))
-            .send()
-            .await?
-            .bytes()
-            .await?;
+            .send()?
+            .bytes()?;
 
         self.request_data = Some(Box::new(bytes));
         Ok(Box::new(self))
     }
 
-    async fn parse(&self) -> anyhow::Result<Self::ParseData> {
+    fn parse(&self) -> anyhow::Result<Self::ParseData> {
         trace!("Nozomi::parse()");
         let request_data = self.request_data()?;
 
@@ -109,25 +105,25 @@ mod test {
     use super::Nozomi;
     use super::Parser;
 
-    #[tokio::test]
-    async fn parse_nozomi() -> anyhow::Result<()> {
+    #[test]
+    fn parse_nozomi() -> anyhow::Result<()> {
         let nozomi_parser = Nozomi::new(1, 25, Language::Korean);
 
-        let nozomi_parser = nozomi_parser.request().await?;
+        let nozomi_parser = nozomi_parser.request()?;
 
-        let pd = nozomi_parser.parse().await?;
+        let pd = nozomi_parser.parse()?;
 
         assert_eq!(25, pd.len());
 
         Ok(())
     }
 
-    #[tokio::test]
-    async fn parse_nozomi_index_out_of_bounds() -> anyhow::Result<()> {
+    #[test]
+    fn parse_nozomi_index_out_of_bounds() -> anyhow::Result<()> {
         let nozomi_parser = Nozomi::new(20, 1000000, Language::Korean);
 
-        let nozomi_parser = nozomi_parser.request().await?;
-        let pd = nozomi_parser.parse().await?;
+        let nozomi_parser = nozomi_parser.request()?;
+        let pd = nozomi_parser.parse()?;
 
         Ok(())
     }

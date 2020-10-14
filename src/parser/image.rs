@@ -1,7 +1,9 @@
 use std::char;
+use std::ffi::OsStr;
+use std::fs;
+use std::path::Path;
 
 use anyhow;
-use async_trait::async_trait;
 use bytes::Bytes;
 use log::{debug, trace};
 use reqwest;
@@ -50,6 +52,14 @@ impl File {
             false
         }
     }
+
+    /* pub fn ext(&self) -> &str {
+        Path::new(self.name.as_str())
+            .extension()
+            .unwrap_or(OsStr::new("img"))
+            .to_str()
+            .expect("Can't get str from OsStr::to_str()")
+    } */
 
     pub fn url(&self, content_id: u32) -> anyhow::Result<(ImageURL, ThumbnailURL)> {
         trace!("File::url()");
@@ -142,34 +152,36 @@ impl File {
         Ok((image_url, thumbnail_url))
     }
 
-    pub async fn download(&self, content_id: u32, is_thumbnail: bool) -> anyhow::Result<Bytes> {
+    /// (URL, buf)
+    pub fn download(&self, content_id: u32, is_thumbnail: bool) -> anyhow::Result<(String, Bytes)> {
         let (image_url, thumbnail_url) = self.url(content_id)?;
 
         if is_thumbnail {
-            self.download_(content_id, thumbnail_url).await
+            let r = self.download_(content_id, &thumbnail_url)?;
+            Ok((thumbnail_url, r))
         } else {
-            self.download_(content_id, image_url).await
+            let r = self.download_(content_id, &image_url)?;
+            Ok((image_url, r))
         }
     }
 
-    async fn download_(&self, content_id: u32, url: String) -> anyhow::Result<Bytes> {
+    fn download_<U: reqwest::IntoUrl>(&self, content_id: u32, url: U) -> anyhow::Result<Bytes> {
         trace!("File::download()");
-        let client = reqwest::Client::builder().build()?;
+        let client = reqwest::blocking::Client::builder().build()?;
 
         let response = client
-            .get(url.as_str())
+            .get(url)
             .header(
                 "Referer",
                 format!("https://hitomi.la/reader/{}.html", content_id),
             )
-            .send()
-            .await?;
+            .send()?;
 
         if response.status().is_success() {
-            let bytes = response.bytes().await?;
+            let bytes = response.bytes()?;
             Ok(bytes)
         } else {
-            // debug!("{}", response.text().await?);
+            // debug!("{}", response.text()?);
 
             Err(anyhow::Error::msg(format!(
                 "Image Download Error! {}",
@@ -184,10 +196,9 @@ struct ImageInfo {
     files: Vec<File>,
 }
 
-#[async_trait]
 impl Parser for Image {
     type RequestData = String;
-    type ParseData = Vec<(usize, File)>;
+    type ParseData = Vec<File>;
 
     fn request_data(&self) -> anyhow::Result<&Box<Self::RequestData>> {
         trace!("Image::request_data()");
@@ -197,21 +208,16 @@ impl Parser for Image {
         }
     }
 
-    async fn url(&self) -> anyhow::Result<String> {
+    fn url(&self) -> anyhow::Result<String> {
         trace!("Image::url()");
         Ok(format!("https://ltn.hitomi.la/galleries/{}.js", self.id))
     }
 
-    async fn request(mut self) -> anyhow::Result<Box<Self>> {
+    fn request(mut self) -> anyhow::Result<Box<Self>> {
         trace!("Image::request()");
-        let client = reqwest::Client::builder().build()?;
+        let client = reqwest::blocking::Client::builder().build()?;
 
-        let rd = client
-            .get(self.url().await?.as_str())
-            .send()
-            .await?
-            .text()
-            .await?;
+        let rd = client.get(self.url()?.as_str()).send()?.text()?;
 
         let rd = &rd[rd.find("=").unwrap() + 1..];
 
@@ -219,7 +225,7 @@ impl Parser for Image {
         Ok(Box::new(self))
     }
 
-    async fn parse(&self) -> anyhow::Result<Self::ParseData> {
+    fn parse(&self) -> anyhow::Result<Self::ParseData> {
         trace!("Image::parse()");
         let ref request_data = match self.request_data {
             Some(ref rd) => rd,
@@ -228,12 +234,7 @@ impl Parser for Image {
 
         let image_info = serde_json::from_str::<'_, ImageInfo>(request_data.as_str())?;
 
-        let files = image_info
-            .files
-            .into_iter()
-            .enumerate()
-            .map(|(page, file)| (page + 1, file))
-            .collect::<Vec<_>>();
+        let files = image_info.files;
 
         Ok(files)
     }
@@ -246,13 +247,13 @@ mod tests {
     use super::Image;
     use super::Parser;
 
-    #[tokio::test]
-    async fn parse_image_files_info() -> anyhow::Result<()> {
+    #[test]
+    fn parse_image_files_info() -> anyhow::Result<()> {
         let image_parser = Image::new(1721169);
 
-        let image_parser = image_parser.request().await?;
+        let image_parser = image_parser.request()?;
 
-        let image_files_info = image_parser.parse().await?;
+        let image_files_info = image_parser.parse()?;
 
         assert_eq!(10, image_files_info.len());
 

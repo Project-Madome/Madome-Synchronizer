@@ -1,5 +1,4 @@
 use anyhow;
-use async_trait::async_trait;
 use log::{debug, trace};
 use madome_client::book::{Metadata, MetadataBook};
 use reqwest;
@@ -114,7 +113,6 @@ impl Gallery {
     }
 }
 
-#[async_trait]
 impl Parser for Gallery {
     type RequestData = String;
     type ParseData = MetadataBook;
@@ -127,18 +125,13 @@ impl Parser for Gallery {
         }
     }
 
-    async fn url(&self) -> anyhow::Result<String> {
+    fn url(&self) -> anyhow::Result<String> {
         trace!("Gallery::url()");
         let gallery_url = format!("https://hitomi.la/galleries/{}.html", self.id);
 
-        let client = reqwest::Client::builder().build()?;
+        let client = reqwest::blocking::Client::builder().build()?;
 
-        let gallery_html = client
-            .get(gallery_url.as_str())
-            .send()
-            .await?
-            .text()
-            .await?;
+        let gallery_html = client.get(gallery_url.as_str()).send()?.text()?;
 
         let document = Html::parse_document(gallery_html.as_str());
         let content_url_selector = Selector::parse("body > a").unwrap();
@@ -154,18 +147,13 @@ impl Parser for Gallery {
         Ok(content_url)
     }
 
-    async fn request(mut self) -> anyhow::Result<Box<Self>> {
+    fn request(mut self) -> anyhow::Result<Box<Self>> {
         trace!("Gallery::request()");
-        let content_url = self.url().await?;
+        let content_url = self.url()?;
 
-        let client = reqwest::Client::builder().build()?;
+        let client = reqwest::blocking::Client::builder().build()?;
 
-        let content_html = client
-            .get(content_url.as_str())
-            .send()
-            .await?
-            .text()
-            .await?;
+        let content_html = client.get(content_url.as_str()).send()?.text()?;
 
         self.request_data = Some(Box::new(content_html));
         Ok(Box::new(self))
@@ -173,7 +161,7 @@ impl Parser for Gallery {
 
     /// Groups
     /// Charcters
-    async fn parse(&self) -> anyhow::Result<Self::ParseData> {
+    fn parse(&self) -> anyhow::Result<Self::ParseData> {
         trace!("Gallery::parse()");
         let document = Html::parse_document(self.request_data()?.as_str());
 
@@ -208,11 +196,11 @@ mod tests {
     use super::Gallery;
     use super::Parser;
 
-    #[tokio::test]
-    async fn parse_tags() -> anyhow::Result<()> {
+    #[test]
+    fn parse_tags() -> anyhow::Result<()> {
         let gallery = Gallery::new(1724122);
 
-        let gallery = gallery.request().await?;
+        let gallery = gallery.request()?;
 
         let document = Html::parse_document(gallery.request_data()?.as_str());
 
@@ -230,11 +218,11 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn parse_tags_is_nothing() -> anyhow::Result<()> {
+    #[test]
+    fn parse_tags_is_nothing() -> anyhow::Result<()> {
         let gallery = Gallery::new(1752881);
 
-        let gallery = gallery.request().await?;
+        let gallery = gallery.request()?;
 
         let document = Html::parse_document(gallery.request_data()?.as_str());
 
@@ -247,11 +235,11 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn parse_characters() -> anyhow::Result<()> {
+    #[test]
+    fn parse_characters() -> anyhow::Result<()> {
         let gallery = Gallery::new(1277807);
 
-        let gallery = gallery.request().await?;
+        let gallery = gallery.request()?;
 
         let document = Html::parse_document(gallery.request_data()?.as_str());
 
@@ -281,11 +269,11 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn parse_characters_is_nothing() -> anyhow::Result<()> {
+    #[test]
+    fn parse_characters_is_nothing() -> anyhow::Result<()> {
         let gallery = Gallery::new(1745756);
 
-        let gallery = gallery.request().await?;
+        let gallery = gallery.request()?;
 
         let document = Html::parse_document(gallery.request_data()?.as_str());
 
@@ -298,11 +286,11 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn parse_groups() -> anyhow::Result<()> {
+    #[test]
+    fn parse_groups() -> anyhow::Result<()> {
         let gallery = Gallery::new(1705277);
 
-        let gallery = gallery.request().await?;
+        let gallery = gallery.request()?;
 
         let document = Html::parse_document(gallery.request_data()?.as_str());
 
@@ -315,11 +303,11 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn parse_groups_is_nothing() -> anyhow::Result<()> {
+    #[test]
+    fn parse_groups_is_nothing() -> anyhow::Result<()> {
         let gallery = Gallery::new(1454325);
 
-        let gallery = gallery.request().await?;
+        let gallery = gallery.request()?;
 
         let document = Html::parse_document(gallery.request_data()?.as_str());
 

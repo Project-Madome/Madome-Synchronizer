@@ -8,17 +8,15 @@ edition = "2018"
 
 [dependencies]
 scraper = "0.12.0"
-reqwest = { version = "0.10.8", features = ["json"] }
-tokio = { version = "0.2.22", features = ["full"] }
+reqwest = { version = "0.10.8", features = ["json", "blocking"] }
 anyhow = "1.0.32"
 bytes = "0.5.6"
-async-trait = "0.1.40"
 time = "0.2.22"
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.58"
 log = { version = "0.4.11", features = ["max_level_trace", "release_max_level_debug"] }
 env_logger = "0.7.1"
-futures = "0.3.6"
 fp-core = "0.1.9"
-itertools = "0.9"
-madome_client = { version = "0.2.1" }
+rayon = "1.4.1"
+# madome_client = { path = "../Madome-API-rs" }
+madome_client = { version = "0.4.0" }
