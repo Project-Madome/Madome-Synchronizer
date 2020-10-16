@@ -137,13 +137,12 @@ fn main() {
 fn sync() -> anyhow::Result<()> {
     init_logger();
 
-    let is_infinity_parse = env::vars().find(|(key, _)| key == "INFINITY").is_some();
-    let page = env::vars()
-        .find_map(|(key, value)| if key == "PAGE" { Some(value) } else { None })
+    let is_infinity_parse = env::var("INFINITY").is_ok();
+    let page = env::var("PAGE")
         .unwrap_or("1".to_string());
-    let per_page = env::vars()
-        .find_map(|(key, value)| if key == "PER_PAGE" { Some(value) } else { None })
+    let per_page = env::var("PER_PAGE")
         .unwrap_or("25".to_string());
+    let latency = env::var("LATENCY").unwrap_or("3600".to_string());
 
     let auth_client = AuthClient::new(MADOME_URL);
     let book_client = BookClient::new(MADOME_URL);
@@ -151,6 +150,7 @@ fn sync() -> anyhow::Result<()> {
 
     let mut page: usize = page.parse()?;
     let per_page: usize = per_page.parse()?;
+    let latency: u64 = latency.parse()?;
 
     'a: loop {
         let token = fs::read("./.token")?;
@@ -195,7 +195,7 @@ fn sync() -> anyhow::Result<()> {
 
         if !is_infinity_parse && non_exists_ids.is_empty() {
             page = 1;
-            sleep(Duration::from_secs(3600));
+            sleep(Duration::from_secs(latency));
             continue 'a;
         }
 
