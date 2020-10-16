@@ -194,7 +194,7 @@ fn sync() -> anyhow::Result<()> {
         debug!("non_exists_ids = {:?}", non_exists_ids);
 
         if !is_infinity_parse && non_exists_ids.is_empty() {
-            page = 0;
+            page = 1;
             sleep(Duration::from_secs(3600));
             continue 'a;
         }
