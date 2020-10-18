@@ -15,10 +15,10 @@ PAGE=1 PER_PAGE=25 LATENCY=3600 ./target/release/madome-synchronizer
 # - Synchronize all page
 #
 # * PAGE=uint
-# - initial page of hitomi
+# - Initial page of hitomi
 #
 # * PER_PAGE=uint
-# - per page of hitomi
+# - Per page of hitomi
 #
 # * LATENCY=secs
 # - Time until next synchronize

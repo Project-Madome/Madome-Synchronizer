@@ -1,11 +1,9 @@
 extern crate madome_synchronizer;
 
-use std::collections::HashSet;
 use std::env;
-use std::fmt::Display;
+
 use std::fs;
-use std::hash::Hash;
-use std::str::FromStr;
+
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
@@ -24,7 +22,7 @@ use crate::madome_synchronizer::parser;
 use crate::madome_synchronizer::parser::Parser;
 
 use crate::madome_synchronizer::stage::{DownloadStage, ParseStage, UploadStage};
-use crate::madome_synchronizer::utils::{IntoResultVec, VecUtil};
+use crate::madome_synchronizer::utils::{IntoResultVec, TextStore, VecUtil};
 
 const MADOME_URL: &'static str = "https://api.madome.app";
 const FILE_REPOSITORY_URL: &'static str = "https://file.madome.app";
@@ -61,67 +59,6 @@ impl TokenManager {
     }
 }
 
-pub struct TextStore<T>
-where
-    T: Eq + Hash + Display + FromStr,
-{
-    inner: HashSet<T>,
-}
-
-impl<T> TextStore<T>
-where
-    T: Eq + Hash + Display + FromStr,
-{
-    pub fn add(&mut self, value: T) -> anyhow::Result<()> {
-        if let true = self.inner.insert(value) {
-            return Ok(());
-        }
-        Err(anyhow::Error::msg("Can't insert"))
-    }
-
-    pub fn has(&self, value: &T) -> bool {
-        self.inner.contains(value)
-    }
-
-    pub fn remove(&mut self, value: &T) -> anyhow::Result<()> {
-        if let true = self.inner.remove(value) {
-            return Ok(());
-        }
-        Err(anyhow::Error::msg("Can't remove"))
-    }
-
-    pub fn synchronize(&self, path: &str) -> std::io::Result<()> {
-        let chained_string = self.inner.iter().fold(String::from(""), |mut acc, value| {
-            acc.push_str(&format!("{}\n", value));
-            acc
-        });
-
-        fs::write(path, &chained_string)?;
-
-        Ok(())
-    }
-
-    pub fn from_file(path: &str) -> anyhow::Result<Self> {
-        let text = fs::read_to_string(path)?;
-
-        if text.trim().is_empty() {
-            return Ok(Self {
-                inner: HashSet::new(),
-            });
-        }
-
-        debug!("{:#?}", text.trim().split("\n").collect::<Vec<_>>());
-
-        let inner = text
-            .trim()
-            .split("\n")
-            .filter_map(|s| s.parse::<T>().ok())
-            .collect::<HashSet<_>>();
-
-        Ok(Self { inner })
-    }
-}
-
 fn main() {
     rayon::ThreadPoolBuilder::new()
         .num_threads(15)
@@ -133,21 +70,33 @@ fn main() {
     }
 }
 
-fn sync() -> anyhow::Result<()> {
-    init_logger();
-
-    let is_infinity_parse = env::var("INFINITY").is_ok();
+fn get_environment_variables() -> (usize, usize, u64, bool) {
+    let is_infinity_synchronize = env::var("INFINITY").is_ok();
     let page = env::var("PAGE").unwrap_or("1".to_string());
     let per_page = env::var("PER_PAGE").unwrap_or("25".to_string());
     let latency = env::var("LATENCY").unwrap_or("3600".to_string());
 
+    let page: usize = page
+        .parse()
+        .expect("Can't parse PAGE from environment variables");
+    let per_page: usize = per_page
+        .parse()
+        .expect("Can't parse PER_PAGE from environment variables");
+    let latency: u64 = latency
+        .parse()
+        .expect("Can't parse LATENCY from environment variables");
+
+    (page, per_page, latency, is_infinity_synchronize)
+}
+
+fn sync() -> anyhow::Result<()> {
+    init_logger();
+
+    let (mut page, per_page, latency, is_infinity_synchronize) = get_environment_variables();
+
     let auth_client = AuthClient::new(MADOME_URL);
     let book_client = BookClient::new(MADOME_URL);
     let file_client = FileClient::new(FILE_REPOSITORY_URL);
-
-    let mut page: usize = page.parse()?;
-    let per_page: usize = per_page.parse()?;
-    let latency: u64 = latency.parse()?;
 
     'a: loop {
         let token = fs::read("./.token")?;
@@ -160,33 +109,28 @@ fn sync() -> anyhow::Result<()> {
         trace!("Parsing IDs");
         let nozomi_parser = parser::Nozomi::new(page, per_page, Language::Korean).request()?;
 
-        let is_not_fail = |id: &u32| !(fails.lock().unwrap().has(id));
 
         let content_ids = nozomi_parser.parse()?;
 
         debug!("{} page ids = {:#?}", page, content_ids);
 
+        let is_not_fail = |id: &u32| !(fails.lock().unwrap().has(id));
+        let is_notfound_error = |err: &anyhow::Error| {
+            err.to_string()
+                .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())
+        };
+
         let mut non_exists_ids = content_ids
             .into_par_iter()
             .filter(is_not_fail)
-            .filter_map(|id| -> Option<u32> {
-                if let Err(err) = book_client.get_image_list(TokenLens::get(&token).unwrap(), id) {
-                    if err
-                        .to_string()
-                        .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())
-                    {
-                        return Some(id);
-                    }
-                    return None;
-                }
-                None
-            })
+            .map(|id| (id, book_client.get_image_list(TokenLens::get(&token).unwrap(), id)))
+            .filter_map(|(id , r)| r.err().filter(is_notfound_error).and_then(|_| Some(id)))
             .collect::<Vec<_>>();
 
         debug!("page = {}", page);
         debug!("non_exists_ids = {:#?}", non_exists_ids);
 
-        if !is_infinity_parse && non_exists_ids.is_empty() {
+        if !is_infinity_synchronize && non_exists_ids.is_empty() {
             page = 1;
             sleep(Duration::from_secs(latency));
             continue 'a;
