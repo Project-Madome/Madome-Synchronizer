@@ -56,6 +56,6 @@ pub mod stage {
     pub struct CompleteStage;
 
     impl CompleteStage {
-        pub fn update(r: &anyhow::Result<()>) {}
+        pub fn update(_r: &anyhow::Result<()>) {}
     }
 }

@@ -123,7 +123,7 @@ mod test {
         let nozomi_parser = Nozomi::new(20, 1000000, Language::Korean);
 
         let nozomi_parser = nozomi_parser.request()?;
-        let pd = nozomi_parser.parse()?;
+        let _pd = nozomi_parser.parse()?;
 
         Ok(())
     }

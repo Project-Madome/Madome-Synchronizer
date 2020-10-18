@@ -1,5 +1,5 @@
 use anyhow;
-use log::{debug, trace};
+use log::trace;
 use madome_client::book::{Metadata, MetadataBook};
 use reqwest;
 use scraper::{Html, Selector};
@@ -166,7 +166,7 @@ impl Parser for Gallery {
         let document = Html::parse_document(self.request_data()?.as_str());
 
         // let id = Metadata::ID(Some(self.id));
-        let characters = (self.parse_metadata(&document, Metadata::Characters(None)));
+        let characters = self.parse_metadata(&document, Metadata::Characters(None));
         let groups = self.parse_metadata(&document, Metadata::Groups(None));
 
         let metadata_book = MetadataBook {

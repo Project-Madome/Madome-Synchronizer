@@ -1,8 +1,3 @@
-use std::fs::ReadDir;
-
-use anyhow;
-use rayon::iter::IntoParallelIterator;
-
 mod flat;
 mod seperate;
 

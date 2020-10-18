@@ -2,20 +2,19 @@ extern crate madome_synchronizer;
 
 use std::collections::HashSet;
 use std::env;
+use std::fmt::Display;
 use std::fs;
 use std::hash::Hash;
+use std::str::FromStr;
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
-use std::fmt::Display;
-use std::str::FromStr;
-use std::marker::PhantomData;
 
 use anyhow;
 use env_logger;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace};
 use madome_client::auth::Token;
-use madome_client::book::{Book, Language, MetadataBook};
+use madome_client::book::{Book, Language};
 use madome_client::{AuthClient, BookClient, FileClient};
 use rayon::prelude::*;
 
@@ -25,7 +24,7 @@ use crate::madome_synchronizer::parser;
 use crate::madome_synchronizer::parser::Parser;
 
 use crate::madome_synchronizer::stage::{DownloadStage, ParseStage, UploadStage};
-use crate::madome_synchronizer::utils::{Flat, IntoResultVec, VecUtil};
+use crate::madome_synchronizer::utils::{IntoResultVec, VecUtil};
 
 const MADOME_URL: &'static str = "https://api.madome.app";
 const FILE_REPOSITORY_URL: &'static str = "https://file.madome.app";
@@ -70,7 +69,8 @@ where
 }
 
 impl<T> TextStore<T>
-    where T: Eq + Hash + Display + FromStr
+where
+    T: Eq + Hash + Display + FromStr,
 {
     pub fn add(&mut self, value: T) -> anyhow::Result<()> {
         if let true = self.inner.insert(value) {
@@ -164,8 +164,6 @@ fn sync() -> anyhow::Result<()> {
 
         let content_ids = nozomi_parser.parse()?;
 
-        // content_ids.sort_by(|a, b| a.cmp(b));
-
         debug!("{} page ids = {:#?}", page, content_ids);
 
         let mut non_exists_ids = content_ids
@@ -202,7 +200,6 @@ fn sync() -> anyhow::Result<()> {
             ids.par_iter()
                 .try_for_each(|id| fs::create_dir_all(format!("{}/{}", TEMP_DIR, id)))?;
 
-            debug!("aaaaaa");
             ids.par_iter()
                 .map(|content_id| -> anyhow::Result<_> {
                     debug!("Content ID #{}", content_id);
@@ -234,7 +231,7 @@ fn sync() -> anyhow::Result<()> {
                     let url_path = format!("image/library/{}/thumbnail.{}", book.id, ext);
                     file_client.upload(TokenLens::get(&token).unwrap(), url_path, buf)?;
 
-                    let download_result = image_files
+                    let _download_result = image_files
                         .par_iter()
                         .enumerate()
                         .map(|(current_page, file)| {

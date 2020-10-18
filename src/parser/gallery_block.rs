@@ -1,5 +1,5 @@
 use anyhow;
-use log::{debug, trace};
+use log::trace;
 use madome_client::book::{ContentType, Language, Metadata, MetadataBook};
 use reqwest;
 use scraper::{Html, Selector};

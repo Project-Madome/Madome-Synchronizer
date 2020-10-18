@@ -1,7 +1,4 @@
 use std::char;
-use std::ffi::OsStr;
-use std::fs;
-use std::path::Path;
 
 use anyhow;
 use bytes::Bytes;
