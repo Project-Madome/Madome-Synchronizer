@@ -1,12 +1,11 @@
 extern crate madome_synchronizer;
 
 use std::env;
-
 use std::fs;
-
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
+use std::thread;
 
 use anyhow;
 use env_logger;
@@ -65,8 +64,17 @@ fn main() {
         .build_global()
         .unwrap();
 
-    if let Err(err) = sync() {
-        error!("{:#?}", err);
+    
+    loop {
+        let a = thread::spawn(|| {
+            if let Err(err) = sync() {
+                error!("{:#?}", err);
+            }
+        });
+
+        if let Err(err) = a.join() {
+            error!("{:#?}", err);
+        }
     }
 }
 
@@ -109,7 +117,6 @@ fn sync() -> anyhow::Result<()> {
         trace!("Parsing IDs");
         let nozomi_parser = parser::Nozomi::new(page, per_page, Language::Korean).request()?;
 
-
         let content_ids = nozomi_parser.parse()?;
 
         debug!("{} page ids = {:#?}", page, content_ids);
@@ -123,8 +130,13 @@ fn sync() -> anyhow::Result<()> {
         let mut non_exists_ids = content_ids
             .into_par_iter()
             .filter(is_not_fail)
-            .map(|id| (id, book_client.get_image_list(TokenLens::get(&token).unwrap(), id)))
-            .filter_map(|(id , r)| r.err().filter(is_notfound_error).and_then(|_| Some(id)))
+            .map(|id| {
+                (
+                    id,
+                    book_client.get_image_list(TokenLens::get(&token).unwrap(), id),
+                )
+            })
+            .filter_map(|(id, r)| r.err().filter(is_notfound_error).and_then(|_| Some(id)))
             .collect::<Vec<_>>();
 
         debug!("page = {}", page);
