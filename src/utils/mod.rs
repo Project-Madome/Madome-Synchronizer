@@ -1,8 +1,10 @@
 mod flat;
 mod seperate;
+mod text_store;
 
 pub use flat::flat;
 pub use seperate::seperate;
+pub use text_store::TextStore;
 
 pub trait VecUtil {
     type Item;
