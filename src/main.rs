@@ -2,16 +2,16 @@ extern crate madome_synchronizer;
 
 use std::collections::HashSet;
 use std::env;
-use std::ffi::OsStr;
 use std::fs;
-use std::path::Path;
-use std::str::Chars;
+use std::hash::Hash;
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
+use std::fmt::Display;
+use std::str::FromStr;
+use std::marker::PhantomData;
 
 use anyhow;
-use bytes::Bytes;
 use env_logger;
 use log::{debug, error, info, trace, warn};
 use madome_client::auth::Token;
@@ -27,9 +27,9 @@ use crate::madome_synchronizer::parser::Parser;
 use crate::madome_synchronizer::stage::{DownloadStage, ParseStage, UploadStage};
 use crate::madome_synchronizer::utils::{Flat, IntoResultVec, VecUtil};
 
-static MADOME_URL: &'static str = "https://api.madome.app";
-static FILE_REPOSITORY_URL: &'static str = "https://file.madome.app";
-static TEMP_DIR: &'static str = "./.temp";
+const MADOME_URL: &'static str = "https://api.madome.app";
+const FILE_REPOSITORY_URL: &'static str = "https://file.madome.app";
+const TEMP_DIR: &'static str = "./.temp";
 
 fn init_logger() {
     env_logger::init()
@@ -62,39 +62,38 @@ impl TokenManager {
     }
 }
 
-fn chain_string(a: String, b: String) -> String {
-    let mut a = a;
-    a.push_str(b.as_str());
-
-    a
+pub struct TextStore<T>
+where
+    T: Eq + Hash + Display + FromStr,
+{
+    inner: HashSet<T>,
 }
 
-pub struct ParseFails {
-    fails: HashSet<u32>,
-}
-
-impl ParseFails {
-    pub fn add(&mut self, id: u32) -> anyhow::Result<()> {
-        if let true = self.fails.insert(id) {
+impl<T> TextStore<T>
+    where T: Eq + Hash + Display + FromStr
+{
+    pub fn add(&mut self, value: T) -> anyhow::Result<()> {
+        if let true = self.inner.insert(value) {
             return Ok(());
         }
         Err(anyhow::Error::msg("Can't insert"))
     }
 
-    pub fn has(&self, id: &u32) -> bool {
-        self.fails.contains(id)
+    pub fn has(&self, value: &T) -> bool {
+        self.inner.contains(value)
     }
 
-    pub fn remove(&mut self, id: &u32) -> anyhow::Result<()> {
-        if let true = self.fails.remove(id) {
+    pub fn remove(&mut self, value: &T) -> anyhow::Result<()> {
+        if let true = self.inner.remove(value) {
             return Ok(());
         }
         Err(anyhow::Error::msg("Can't remove"))
     }
 
     pub fn synchronize(&self, path: &str) -> std::io::Result<()> {
-        let chained_string = self.fails.iter().fold(String::from(""), |acc, id| {
-            chain_string(acc, format!("{}\n", id))
+        let chained_string = self.inner.iter().fold(String::from(""), |mut acc, value| {
+            acc.push_str(&format!("{}\n", value));
+            acc
         });
 
         fs::write(path, &chained_string)?;
@@ -103,23 +102,23 @@ impl ParseFails {
     }
 
     pub fn from_file(path: &str) -> anyhow::Result<Self> {
-        let fails = fs::read_to_string(path)?;
+        let text = fs::read_to_string(path)?;
 
-        if fails.trim().is_empty() {
+        if text.trim().is_empty() {
             return Ok(Self {
-                fails: HashSet::new(),
+                inner: HashSet::new(),
             });
         }
 
-        debug!("{:?}", fails.trim().split("\n").collect::<Vec<_>>());
+        debug!("{:#?}", text.trim().split("\n").collect::<Vec<_>>());
 
-        let fails = fails
+        let inner = text
             .trim()
             .split("\n")
-            .filter_map(|s| s.parse::<u32>().ok())
+            .filter_map(|s| s.parse::<T>().ok())
             .collect::<HashSet<_>>();
 
-        Ok(Self { fails })
+        Ok(Self { inner })
     }
 }
 
@@ -130,7 +129,7 @@ fn main() {
         .unwrap();
 
     if let Err(err) = sync() {
-        error!("{:?}", err);
+        error!("{:#?}", err);
     }
 }
 
@@ -138,10 +137,8 @@ fn sync() -> anyhow::Result<()> {
     init_logger();
 
     let is_infinity_parse = env::var("INFINITY").is_ok();
-    let page = env::var("PAGE")
-        .unwrap_or("1".to_string());
-    let per_page = env::var("PER_PAGE")
-        .unwrap_or("25".to_string());
+    let page = env::var("PAGE").unwrap_or("1".to_string());
+    let per_page = env::var("PER_PAGE").unwrap_or("25".to_string());
     let latency = env::var("LATENCY").unwrap_or("3600".to_string());
 
     let auth_client = AuthClient::new(MADOME_URL);
@@ -158,7 +155,7 @@ fn sync() -> anyhow::Result<()> {
         debug!("{}", token);
         let token = Token { token };
         let token = TokenManager::refresh(&auth_client, token)?;
-        let fails = Mutex::new(ParseFails::from_file("./fails.txt")?);
+        let fails = Mutex::new(TextStore::from_file("./fails.txt")?);
 
         trace!("Parsing IDs");
         let nozomi_parser = parser::Nozomi::new(page, per_page, Language::Korean).request()?;
@@ -169,7 +166,7 @@ fn sync() -> anyhow::Result<()> {
 
         // content_ids.sort_by(|a, b| a.cmp(b));
 
-        debug!("{} page ids = {:?}", page, content_ids);
+        debug!("{} page ids = {:#?}", page, content_ids);
 
         let mut non_exists_ids = content_ids
             .into_par_iter()
@@ -188,10 +185,8 @@ fn sync() -> anyhow::Result<()> {
             })
             .collect::<Vec<_>>();
 
-        // debug!("non_exists_ids = {:?}", non_exists_ids);
-
         debug!("page = {}", page);
-        debug!("non_exists_ids = {:?}", non_exists_ids);
+        debug!("non_exists_ids = {:#?}", non_exists_ids);
 
         if !is_infinity_parse && non_exists_ids.is_empty() {
             page = 1;
@@ -199,16 +194,10 @@ fn sync() -> anyhow::Result<()> {
             continue 'a;
         }
 
-        // let non_exists_ids = non_exists_ids.into_iter().unique();
-        // let mut non_exists_ids = non_exists_ids.collect::<Vec<_>>();
-
         non_exists_ids.sort_by(|a, b| a.cmp(b));
 
-        debug!("non_exists_ids = {:?}", non_exists_ids);
+        debug!("non_exists_ids = {:#?}", non_exists_ids);
 
-        //  let mut fails = ParseFails::from_file("./fails.txt")?;
-
-        // upload books info
         for ids in non_exists_ids.seperate(10) {
             ids.par_iter()
                 .try_for_each(|id| fs::create_dir_all(format!("{}/{}", TEMP_DIR, id)))?;
@@ -237,16 +226,8 @@ fn sync() -> anyhow::Result<()> {
                     let image_parser = parser::Image::new(book.id);
                     let image_files = image_parser.request()?.parse()?;
                     let image_files_len = image_files.len();
-                    // let image_files = vec![image_files.into_iter().last().unwrap()];
 
-                    debug!("image_files_len = {:?}", image_files_len);
-
-                    // let seperated_image_files = image_files.seperate(15);
-
-                    // debug!("seperated by 15 image_files = {:?}", seperated_image_files);
-
-                    // 'c: for files in seperated_image_files {
-                    // sleep(Duration::from_secs(2));
+                    debug!("image_files_len = {:#?}", image_files_len);
 
                     let (origin_url, buf) = image_files[0].download(book.id, true)?;
                     let ext = origin_url.split(".").last().unwrap_or("jpg");
@@ -273,7 +254,7 @@ fn sync() -> anyhow::Result<()> {
                     let image_dir =
                         fs::read_dir(format!("{}/{}", TEMP_DIR, book.id))?.collect::<Vec<_>>();
 
-                    debug!("image_dir = {:?}", image_dir);
+                    debug!("image_dir = {:#?}", image_dir);
 
                     let mut upload_result = image_dir
                         .into_par_iter()
@@ -323,7 +304,7 @@ fn sync() -> anyhow::Result<()> {
                     let mut book: Book = book.into();
                     book.page_count = image_files_len;
 
-                    info!("book = {:?}", book);
+                    info!("book = {:#?}", book);
 
                     book_client.create_book(token, book)?;
 
@@ -333,7 +314,7 @@ fn sync() -> anyhow::Result<()> {
                 .for_each(|(r, id)| {
                     if let Err(err) = r {
                         trace!("Failed id = {}", id);
-                        error!("{:?}", err);
+                        error!("{:#?}", err);
                         fails.lock().unwrap().add(id).expect("Can't add fails");
                         fails
                             .lock()
