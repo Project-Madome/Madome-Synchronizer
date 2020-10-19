@@ -3,9 +3,9 @@ extern crate madome_synchronizer;
 use std::env;
 use std::fs;
 use std::sync::Mutex;
+use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
-use std::thread;
 
 use anyhow;
 use env_logger;
@@ -64,7 +64,6 @@ fn main() {
         .build_global()
         .unwrap();
 
-    
     loop {
         let a = thread::spawn(|| {
             if let Err(err) = sync() {
@@ -78,29 +77,48 @@ fn main() {
     }
 }
 
-fn get_environment_variables() -> (usize, usize, u64, bool) {
-    let is_infinity_synchronize = env::var("INFINITY").is_ok();
-    let page = env::var("PAGE").unwrap_or("1".to_string());
-    let per_page = env::var("PER_PAGE").unwrap_or("25".to_string());
-    let latency = env::var("LATENCY").unwrap_or("3600".to_string());
+struct Config {
+    infinity_synchronize: bool,
+    page: usize,
+    per_page: usize,
+    latency: u64,
+}
 
-    let page: usize = page
-        .parse()
-        .expect("Can't parse PAGE from environment variables");
-    let per_page: usize = per_page
-        .parse()
-        .expect("Can't parse PER_PAGE from environment variables");
-    let latency: u64 = latency
-        .parse()
-        .expect("Can't parse LATENCY from environment variables");
+impl Config {
+    pub fn new() -> Self {
+        let infinity_synchronize = env::var("INFINITY").is_ok();
+        let page = env::var("PAGE").unwrap_or("1".to_string());
+        let per_page = env::var("PER_PAGE").unwrap_or("25".to_string());
+        let latency = env::var("LATENCY").unwrap_or("3600".to_string());
 
-    (page, per_page, latency, is_infinity_synchronize)
+        let page: usize = page
+            .parse()
+            .expect("Can't parse PAGE from environment variables");
+        let per_page: usize = per_page
+            .parse()
+            .expect("Can't parse PER_PAGE from environment variables");
+        let latency: u64 = latency
+            .parse()
+            .expect("Can't parse LATENCY from environment variables");
+
+        Self {
+            infinity_synchronize,
+            page,
+            per_page,
+            latency,
+        }
+    }
 }
 
 fn sync() -> anyhow::Result<()> {
     init_logger();
 
-    let (mut page, per_page, latency, is_infinity_synchronize) = get_environment_variables();
+    let Config {
+        mut page,
+        per_page,
+        latency,
+        infinity_synchronize,
+    } = Config::new();
 
     let auth_client = AuthClient::new(MADOME_URL);
     let book_client = BookClient::new(MADOME_URL);
@@ -142,7 +160,7 @@ fn sync() -> anyhow::Result<()> {
         debug!("page = {}", page);
         debug!("non_exists_ids = {:#?}", non_exists_ids);
 
-        if !is_infinity_synchronize && non_exists_ids.is_empty() {
+        if !infinity_synchronize && non_exists_ids.is_empty() {
             page = 1;
             sleep(Duration::from_secs(latency));
             continue 'a;
