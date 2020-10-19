@@ -15,6 +15,10 @@ impl<T> TextStore<T>
 where
     T: Eq + Hash + Display + FromStr,
 {
+    pub fn iter(&self) -> std::collections::hash_set::Iter<'_, T> {
+        self.inner.iter()
+    }
+
     pub fn add(&mut self, value: T) -> anyhow::Result<()> {
         if let true = self.inner.insert(value) {
             return Ok(());

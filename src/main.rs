@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow;
 use env_logger;
-use log::{error, trace};
+use log::{info, error, trace};
 use madome_client::auth::Token;
 use madome_client::book::{Book, Language};
 use madome_client::{AuthClient, BookClient, FileClient};
@@ -56,19 +56,25 @@ impl TokenManager {
     }
 }
 
+#[derive(Debug)]
 struct Config {
     infinity_synchronize: bool,
+    retry_fail: bool,
     page: usize,
     per_page: usize,
     latency: u64,
+
+    specified_id: Option<u32>,
 }
 
 impl Config {
     pub fn new() -> Self {
         let infinity_synchronize = env::var("INFINITY").is_ok();
+        let retry_fail = env::var("RETRY_FAIL").is_ok();
         let page = env::var("PAGE").unwrap_or("1".to_string());
         let per_page = env::var("PER_PAGE").unwrap_or("25".to_string());
         let latency = env::var("LATENCY").unwrap_or("3600".to_string());
+        let specified_id = env::var("ID").ok().and_then(|x| x.parse::<u32>().ok());
 
         let page: usize = page
             .parse()
@@ -82,9 +88,12 @@ impl Config {
 
         Self {
             infinity_synchronize,
+            retry_fail,
             page,
             per_page,
             latency,
+
+            specified_id,
         }
     }
 }
@@ -218,12 +227,18 @@ fn main() {
 
     loop {
         let a = thread::spawn(|| -> anyhow::Result<()> {
+            let config = Config::new();
+
+            info!("{:#?}", config);
+
             let Config {
                 mut page,
                 per_page,
                 latency,
                 infinity_synchronize,
-            } = Config::new();
+                retry_fail,
+                specified_id,
+            } = config;
 
             let auth_client = AuthClient::new(MADOME_URL);
             let book_client = BookClient::new(MADOME_URL);
@@ -240,8 +255,20 @@ fn main() {
                     .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())
             };
 
+            if let Some(id) = specified_id {
+                sync(id, &token, &fail_store).unwrap();
+                std::process::exit(0)
+            }
+
             'a: loop {
-                let r = parse_ids(page, per_page, Language::Korean)
+                let ids = if retry_fail {
+                    Ok(fail_store.lock().unwrap().iter().map(|id| *id).collect::<Vec<_>>())
+                } else {
+                    parse_ids(page, per_page, Language::Korean)
+                };
+
+
+                let r = ids
                     .and_then(|ids| {
                         let ids = ids
                             .into_par_iter()
