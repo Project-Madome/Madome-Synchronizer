@@ -55,7 +55,7 @@ where
 
         let inner = text
             .trim()
-            .split("\n")
+            .lines()
             .filter_map(|s| s.parse::<T>().ok())
             .collect::<HashSet<_>>();
 
