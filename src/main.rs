@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow;
 use env_logger;
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
 use madome_client::auth::Token;
 use madome_client::book::{Book, Language};
 use madome_client::{AuthClient, BookClient, FileClient};
@@ -249,7 +249,12 @@ fn main() {
             let token = TokenManager::refresh(&auth_client, token)?;
             let fail_store = Mutex::new(TextStore::from_file("./fail_store.txt")?);
 
-            let is_not_fail = |id: &u32| !(fail_store.lock().unwrap().has(id));
+            let is_not_fail = |id: &u32| {
+                if retry_fail {
+                    return true;
+                }
+                !(fail_store.lock().unwrap().has(id))
+            };
             let is_notfound_error = |err: &anyhow::Error| {
                 err.to_string()
                     .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())

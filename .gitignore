@@ -47,4 +47,4 @@ Cargo.lock
 .html/
 .temp/
 .token
-fails.txt
+fail_store.txt
