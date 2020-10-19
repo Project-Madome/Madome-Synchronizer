@@ -4,12 +4,11 @@ use std::env;
 use std::fs;
 use std::sync::Mutex;
 use std::thread;
-use std::thread::sleep;
 use std::time::Duration;
 
 use anyhow;
 use env_logger;
-use log::{debug, error, info, trace};
+use log::{error, trace};
 use madome_client::auth::Token;
 use madome_client::book::{Book, Language};
 use madome_client::{AuthClient, BookClient, FileClient};
@@ -20,12 +19,11 @@ use fp_core::lens::Lens;
 use crate::madome_synchronizer::parser;
 use crate::madome_synchronizer::parser::Parser;
 
-use crate::madome_synchronizer::stage::{DownloadStage, ParseStage, UploadStage};
-use crate::madome_synchronizer::utils::{IntoResultVec, TextStore, VecUtil};
+use crate::madome_synchronizer::stage::{self, Stage};
+use crate::madome_synchronizer::utils::{IntoResultVec, TextStore};
 
 const MADOME_URL: &'static str = "https://api.madome.app";
 const FILE_REPOSITORY_URL: &'static str = "https://file.madome.app";
-const TEMP_DIR: &'static str = "./.temp";
 
 fn init_logger() {
     env_logger::init()
@@ -55,25 +53,6 @@ impl TokenManager {
         let new_token = TokenLens::set(new_token, &token);
 
         Ok(new_token)
-    }
-}
-
-fn main() {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(15)
-        .build_global()
-        .unwrap();
-
-    loop {
-        let a = thread::spawn(|| {
-            if let Err(err) = sync() {
-                error!("{:#?}", err);
-            }
-        });
-
-        if let Err(err) = a.join() {
-            error!("{:#?}", err);
-        }
     }
 }
 
@@ -110,199 +89,202 @@ impl Config {
     }
 }
 
-fn sync() -> anyhow::Result<()> {
-    init_logger();
+fn parse_ids(page: usize, per_page: usize, language: Language) -> anyhow::Result<Vec<u32>> {
+    trace!("parse_ids({}, {}, {:#?})", page, per_page, language);
+    parser::Nozomi::new(page, per_page, language)
+        .request()?
+        .parse()
+}
 
-    let Config {
-        mut page,
-        per_page,
-        latency,
-        infinity_synchronize,
-    } = Config::new();
+fn parse_images(id: u32) -> anyhow::Result<Vec<parser::File>> {
+    trace!("parse_image({})", id);
+    parser::Image::new(id).request()?.parse()
+}
 
-    let auth_client = AuthClient::new(MADOME_URL);
-    let book_client = BookClient::new(MADOME_URL);
+fn get_ext(x: &str) -> Option<&str> {
+    x.split('.').last()
+}
+
+fn add_images(id: u32, images: &Vec<parser::File>, token: &Token) -> anyhow::Result<()> {
     let file_client = FileClient::new(FILE_REPOSITORY_URL);
 
-    'a: loop {
-        let token = fs::read("./.token")?;
-        let token = String::from_utf8(token)?.trim().to_string();
-        debug!("{}", token);
-        let token = Token { token };
-        let token = TokenManager::refresh(&auth_client, token)?;
-        let fails = Mutex::new(TextStore::from_file("./fails.txt")?);
+    images
+        .par_iter()
+        .enumerate()
+        .map(|(page, file)| (page + 1, file))
+        .map(|(page, image)| -> anyhow::Result<String> {
+            image.download(id, false).and_then(|(origin_url, buf)| {
+                let ext = get_ext(&origin_url).unwrap_or("jpg");
+                let filename = format!("{}.{}", page, ext);
+                let url_path = format!("image/library/{}/{}", id, filename);
 
-        trace!("Parsing IDs");
-        let nozomi_parser = parser::Nozomi::new(page, per_page, Language::Korean).request()?;
+                file_client.upload(TokenLens::get(token).unwrap(), &url_path, buf)?;
 
-        let content_ids = nozomi_parser.parse()?;
-
-        debug!("{} page ids = {:#?}", page, content_ids);
-
-        let is_not_fail = |id: &u32| !(fails.lock().unwrap().has(id));
-        let is_notfound_error = |err: &anyhow::Error| {
-            err.to_string()
-                .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())
-        };
-
-        let mut non_exists_ids = content_ids
-            .into_par_iter()
-            .filter(is_not_fail)
-            .map(|id| {
-                (
-                    id,
-                    book_client.get_image_list(TokenLens::get(&token).unwrap(), id),
-                )
+                Ok(url_path)
             })
-            .filter_map(|(id, r)| r.err().filter(is_notfound_error).and_then(|_| Some(id)))
-            .collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>()
+        .into_result_vec()
+        .and_then(|image_list| add_image_list(id, image_list, token))
+}
 
-        debug!("page = {}", page);
-        debug!("non_exists_ids = {:#?}", non_exists_ids);
+fn add_thumbnail(id: u32, image: &parser::File, token: &Token) -> anyhow::Result<()> {
+    let file_client = FileClient::new(FILE_REPOSITORY_URL);
 
-        if !infinity_synchronize && non_exists_ids.is_empty() {
-            page = 1;
-            sleep(Duration::from_secs(latency));
-            continue 'a;
-        }
+    image.download(id, true).and_then(|(origin_url, buf)| {
+        let ext = get_ext(&origin_url).unwrap_or("jpg");
+        let url_path = format!("image/library/{}/thumbnail.{}", id, ext);
+        file_client.upload(TokenLens::get(&token).unwrap(), url_path, buf)
+    })
+}
 
-        non_exists_ids.sort_by(|a, b| a.cmp(b));
+fn add_image_list(id: u32, image_list: Vec<String>, token: &Token) -> anyhow::Result<()> {
+    let file_client = FileClient::new(FILE_REPOSITORY_URL);
 
-        debug!("non_exists_ids = {:#?}", non_exists_ids);
+    let image_list_txt = image_list
+        .into_iter()
+        .fold(String::new(), |mut acc, url_path| {
+            acc.push_str(&format!("{}/{}", FILE_REPOSITORY_URL, url_path));
+            acc.push_str("\n");
+            acc
+        });
 
-        for ids in non_exists_ids.seperate(10) {
-            ids.par_iter()
-                .try_for_each(|id| fs::create_dir_all(format!("{}/{}", TEMP_DIR, id)))?;
+    file_client.upload(
+        TokenLens::get(token).unwrap(),
+        format!("image/library/{}/image_list.txt", id).as_str(),
+        image_list_txt.trim(),
+    )
+}
 
-            ids.par_iter()
-                .map(|content_id| -> anyhow::Result<_> {
-                    debug!("Content ID #{}", content_id);
+fn parse_book(id: u32, page: usize) -> anyhow::Result<Book> {
+    let gallery_data = parser::Gallery::new(id).request()?.parse()?;
+    let mut gallery_block_data = parser::GalleryBlock::new(id).request()?.parse()?;
 
-                    let gallery_parser = parser::Gallery::new(*content_id).request()?;
-                    let gallery_block_parser = parser::GalleryBlock::new(*content_id).request()?;
-                    debug!("Ready RequestData #{}", content_id);
+    gallery_block_data.groups = gallery_data.groups;
+    gallery_block_data.characters = gallery_data.characters;
 
-                    let gallery_data = gallery_parser.parse()?;
-                    let mut gallery_block_data = gallery_block_parser.parse()?;
-                    debug!("Ready ParseData #{}", content_id);
+    Ok(Book {
+        page_count: page,
+        ..Book::from(gallery_block_data)
+    })
+}
 
-                    gallery_block_data.groups = gallery_data.groups;
-                    gallery_block_data.characters = gallery_data.characters;
+fn add_book(book: Book, token: &Token) -> anyhow::Result<()> {
+    let book_client = BookClient::new(MADOME_URL);
 
-                    Ok(Book::from(gallery_block_data))
-                })
-                .inspect(ParseStage::update)
-                .map(|r| -> anyhow::Result<()> {
-                    let book = r?;
-                    let image_parser = parser::Image::new(book.id);
-                    let image_files = image_parser.request()?.parse()?;
-                    let image_files_len = image_files.len();
+    let book: Book = book.into();
+    book_client.create_book(TokenLens::get(token).unwrap(), book)
+}
 
-                    debug!("image_files_len = {:#?}", image_files_len);
+fn add_fail(id: u32, fail_store: &Mutex<TextStore<u32>>) {
+    fail_store.lock().unwrap().add(id).expect("Can't add fails");
+    fail_store
+        .lock()
+        .unwrap()
+        .synchronize("./fails.txt")
+        .expect("Can't synchronize fails");
+}
 
-                    let (origin_url, buf) = image_files[0].download(book.id, true)?;
-                    let ext = origin_url.split(".").last().unwrap_or("jpg");
-                    let url_path = format!("image/library/{}/thumbnail.{}", book.id, ext);
-                    file_client.upload(TokenLens::get(&token).unwrap(), url_path, buf)?;
+fn sync(id: u32, token: &Token, fail_store: &Mutex<TextStore<u32>>) -> anyhow::Result<()> {
+    parse_images(id)
+        .and_then(|images| stage::update(id, Stage::ParsedImages).and_then(|_| Ok(images)))
+        .and_then(|images| {
+            add_thumbnail(id, &images[0], token)
+                .and_then(|_| stage::update(id, Stage::AddedThumbnail))
+                // add images and image_list.txt
+                .and_then(|_| add_images(id, &images, token))
+                .and_then(|_| stage::update(id, Stage::AddedImages))
+                .and_then(|_| Ok(images.len()))
+        })
+        .and_then(|images_len| parse_book(id, images_len))
+        .and_then(|book| stage::update(id, Stage::ParsedBook).and_then(|_| Ok(book)))
+        .and_then(|book| add_book(book, token))
+        .and_then(|_| stage::update(id, Stage::AddedBook))
+        .map_err(|err| {
+            error!("{:#?}", err);
+            add_fail(id, &fail_store);
+            stage::update(id, Stage::Fail).unwrap();
+            err
+        })
+}
 
-                    let _download_result = image_files
-                        .par_iter()
-                        .enumerate()
-                        .map(|(current_page, file)| {
-                            let current_page = current_page + 1;
-                            let (origin_url, buf) = file.download(book.id, false)?;
-                            let ext = origin_url.split(".").last().unwrap().to_string();
-                            fs::write(
-                                format!("{}/{}/{}.{}", TEMP_DIR, book.id, current_page, ext),
-                                buf,
-                            )?;
-                            Ok((book.id, current_page, ext))
-                        })
-                        .inspect(DownloadStage::update)
-                        .collect::<Vec<Result<(u32, usize, String), _>>>()
-                        .into_result_vec()?;
+fn main() {
+    init_logger();
 
-                    let image_dir =
-                        fs::read_dir(format!("{}/{}", TEMP_DIR, book.id))?.collect::<Vec<_>>();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(15)
+        .build_global()
+        .unwrap();
 
-                    debug!("image_dir = {:#?}", image_dir);
+    loop {
+        let a = thread::spawn(|| -> anyhow::Result<()> {
+            let Config {
+                mut page,
+                per_page,
+                latency,
+                infinity_synchronize,
+            } = Config::new();
 
-                    let mut upload_result = image_dir
-                        .into_par_iter()
-                        .enumerate()
-                        .map(
-                            |(current_page, r)| -> anyhow::Result<(String, Vec<u8>, usize)> {
-                                let filename = r?.file_name().to_str().unwrap().to_string();
-                                debug!("filename = {}", filename);
-                                let buf =
-                                    fs::read(format!("{}/{}/{}", TEMP_DIR, book.id, filename))?;
-                                Ok((filename, buf, current_page))
-                            },
-                        )
-                        .map(|r| -> anyhow::Result<_> {
-                            let (filename, buf, current_page) = r?;
-                            let url_path = format!("image/library/{}/{}", book.id, filename);
-                            file_client.upload(TokenLens::get(&token).unwrap(), &url_path, buf)?;
-                            Ok((
-                                format!("{}/v1/{}", FILE_REPOSITORY_URL, url_path),
-                                current_page,
-                            ))
-                        })
-                        .inspect(UploadStage::update)
-                        .collect::<Vec<Result<(String, usize), _>>>()
-                        .into_result_vec()?;
+            let auth_client = AuthClient::new(MADOME_URL);
+            let book_client = BookClient::new(MADOME_URL);
 
-                    upload_result.sort_by(|(_, a), (_, b)| a.cmp(b));
+            let token = fs::read("./.token")?;
+            let token = String::from_utf8(token)?.trim().to_string();
+            let token = Token { token };
+            let token = TokenManager::refresh(&auth_client, token)?;
+            let fail_store = Mutex::new(TextStore::from_file("./fail_store.txt")?);
 
-                    let image_list_txt =
-                        upload_result
-                            .into_iter()
-                            .fold(String::new(), |mut acc, (url_path, _)| {
-                                acc.push_str(&url_path);
-                                acc.push_str("\n");
-                                acc
-                            });
+            let is_not_fail = |id: &u32| !(fail_store.lock().unwrap().has(id));
+            let is_notfound_error = |err: &anyhow::Error| {
+                err.to_string()
+                    .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())
+            };
 
-                    debug!("image_list.txt = {}", image_list_txt);
+            'a: loop {
+                let r = parse_ids(page, per_page, Language::Korean)
+                    .and_then(|ids| {
+                        let ids = ids
+                            .into_par_iter()
+                            .filter(is_not_fail)
+                            .filter_map(|id| {
+                                book_client
+                                    .get_image_list(TokenLens::get(&token).unwrap(), id)
+                                    .err()
+                                    .filter(is_notfound_error)
+                                    .and_then(|_| Some(id))
+                            })
+                            .collect::<Vec<_>>();
 
-                    let token = TokenLens::get(&token).unwrap();
-                    file_client.upload(
-                        token,
-                        format!("image/library/{}/image_list.txt", book.id).as_str(),
-                        image_list_txt.trim(),
-                    )?;
+                        Ok(ids)
+                    })
+                    .and_then(|ids| {
+                        if ids.is_empty() && !infinity_synchronize {
+                            return Err(anyhow::Error::msg("empty ids"));
+                        }
 
-                    let mut book: Book = book.into();
-                    book.page_count = image_files_len;
+                        Ok(ids)
+                    })
+                    .and_then(|ids| {
+                        ids.into_par_iter()
+                            .try_for_each(|id| sync(id, &token, &fail_store))
+                    });
 
-                    info!("book = {:#?}", book);
-
-                    book_client.create_book(token, book)?;
-
-                    Ok(())
-                })
-                .zip(ids.clone())
-                .for_each(|(r, id)| {
-                    if let Err(err) = r {
-                        trace!("Failed id = {}", id);
-                        error!("{:#?}", err);
-                        fails.lock().unwrap().add(id).expect("Can't add fails");
-                        fails
-                            .lock()
-                            .unwrap()
-                            .synchronize("./fails.txt")
-                            .expect("Can't synchronize fails");
+                if let Err(err) = r {
+                    if err.to_string() == "empty ids" {
+                        page = 1;
+                        thread::sleep(Duration::from_secs(latency));
+                        continue 'a;
                     }
-                });
 
-            ids.par_iter()
-                .try_for_each(|id| fs::remove_dir_all(format!("{}/{}", TEMP_DIR, id)))?;
+                    return Err(err);
+                }
+
+                page += 1;
+            }
+        });
+
+        if let Err(err) = a.join() {
+            error!("{:#?}", err);
         }
-
-        // break 'a;
-
-        page += 1;
     }
-
-    // Ok(())
 }
