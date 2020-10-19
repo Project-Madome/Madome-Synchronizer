@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow;
 use env_logger;
-use log::{info, error, trace};
+use log::{error, info, trace};
 use madome_client::auth::Token;
 use madome_client::book::{Book, Language};
 use madome_client::{AuthClient, BookClient, FileClient};
@@ -262,11 +262,17 @@ fn main() {
 
             'a: loop {
                 let ids = if retry_fail {
-                    Ok(fail_store.lock().unwrap().iter().map(|id| *id).collect::<Vec<_>>())
+                    let r = fail_store
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .map(|id| *id)
+                        .collect::<Vec<_>>();
+
+                    Ok(r)
                 } else {
                     parse_ids(page, per_page, Language::Korean)
                 };
-
 
                 let r = ids
                     .and_then(|ids| {
