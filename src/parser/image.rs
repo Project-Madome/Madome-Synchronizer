@@ -218,9 +218,10 @@ impl Parser for Image {
 
         // panic
         let i = rd.find("=").ok_or_else(|| {
-            anyhow::Error::msg(
-                format!("error occurs `request_data.find(\"=\")` in parser::Image::request(), {}", rd),
-            )
+            anyhow::Error::msg(format!(
+                "error occurs `request_data.find(\"=\")` in parser::Image::request(), {}",
+                rd
+            ))
         })?;
         let rd = &rd[i + 1..];
 

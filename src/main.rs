@@ -314,8 +314,11 @@ fn main() -> anyhow::Result<()> {
                     Ok(ids)
                 })
                 .and_then(|ids| {
-                    ids.into_par_iter()
-                        .try_for_each(|id| sync(id, &token, &fail_store))
+                    ids.into_par_iter().for_each(|id| {
+                        sync(id, &token, &fail_store).unwrap_or_else(|_| {});
+                    });
+
+                    Ok(())
                 })
                 .and_then(|_| {
                     fail_store
