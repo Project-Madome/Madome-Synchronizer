@@ -214,7 +214,13 @@ impl Parser for Image {
         trace!("Image::request()");
         let client = reqwest::blocking::Client::builder().build()?;
 
-        let rd = client.get(self.url()?.as_str()).send()?.text()?;
+        let response = client.get(self.url()?.as_str()).send()?;
+
+        if !response.status().is_success() {
+            return Err(anyhow::Error::msg(response.status().to_string()));
+        }
+
+        let rd = response.text()?;
 
         // panic
         let i = rd.find("=").ok_or_else(|| {
