@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow;
 use env_logger;
-use log::{error, info, trace};
+use log::{info, trace};
 use madome_client::auth::Token;
 use madome_client::book::{Book, Language};
 use madome_client::{AuthClient, BookClient, FileClient};
@@ -20,7 +20,7 @@ use crate::madome_synchronizer::parser;
 use crate::madome_synchronizer::parser::Parser;
 
 use crate::madome_synchronizer::stage::{self, Stage};
-use crate::madome_synchronizer::utils::{IntoResultVec, TextStore};
+use crate::madome_synchronizer::utils::{get_ext, IntoResultVec, TextStore};
 
 const MADOME_URL: &'static str = "https://api.madome.app";
 const FILE_REPOSITORY_URL: &'static str = "https://file.madome.app";
@@ -108,10 +108,6 @@ fn parse_ids(page: usize, per_page: usize, language: Language) -> anyhow::Result
 fn parse_images(id: u32) -> anyhow::Result<Vec<parser::File>> {
     trace!("parse_image({})", id);
     parser::Image::new(id).request()?.parse()
-}
-
-fn get_ext(x: &str) -> Option<&str> {
-    x.split('.').last()
 }
 
 fn add_images(id: u32, images: &Vec<parser::File>, token: &Token) -> anyhow::Result<()> {
@@ -266,7 +262,7 @@ fn main() -> anyhow::Result<()> {
             if already {
                 info!("Already has book in Madome");
             } else {
-                sync(id, &token, &fail_store)?;
+                sync(id, &token, &fail_store).unwrap_or_else(|_| {});
             }
 
             std::process::exit(0)

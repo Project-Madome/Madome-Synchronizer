@@ -1,8 +1,10 @@
 mod flat;
+mod get_ext;
 mod seperate;
 mod text_store;
 
 pub use flat::flat;
+pub use get_ext::get_ext;
 pub use seperate::seperate;
 pub use text_store::TextStore;
 
