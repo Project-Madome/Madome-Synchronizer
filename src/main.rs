@@ -186,7 +186,7 @@ fn add_book(book: Book, token: &Token) -> anyhow::Result<()> {
 }
 
 fn add_fail(id: u32, fail_store: &Mutex<TextStore<u32>>) {
-    fail_store.lock().unwrap().add(id).expect("Can't add fails");
+    fail_store.lock().unwrap().add(id);
     fail_store
         .lock()
         .unwrap()
@@ -209,10 +209,13 @@ fn sync(id: u32, token: &Token, fail_store: &Mutex<TextStore<u32>>) -> anyhow::R
         .and_then(|book| stage::update(id, Stage::ParsedBook).and_then(|_| Ok(book)))
         .and_then(|book| add_book(book, token))
         .and_then(|_| stage::update(id, Stage::AddedBook))
+        .and_then(|_| {
+            fail_store.lock().unwrap().remove(&id);
+            Ok(())
+        })
         .map_err(|err| {
-            error!("{:#?}", err);
             add_fail(id, &fail_store);
-            stage::update(id, Stage::Fail).unwrap();
+            stage::update(id, Stage::Fail(&err)).unwrap();
             err
         })
 }
@@ -268,9 +271,6 @@ fn main() -> anyhow::Result<()> {
                 info!("Already has book in Madome");
             } else {
                 sync(id, &token, &fail_store)?;
-                if fail_store.lock().unwrap().has(&id) {
-                    fail_store.lock().unwrap().remove(&id)?;
-                };
             }
 
             std::process::exit(0)
@@ -314,21 +314,8 @@ fn main() -> anyhow::Result<()> {
                     Ok(ids)
                 })
                 .and_then(|ids| {
-                    ids.into_par_iter().try_for_each(|id| {
-                        if let Err(err) = sync(id, &token, &fail_store) {
-                            error!("{:#?}", err);
-
-                            if !fail_store.lock().unwrap().has(&id) {
-                                fail_store.lock().unwrap().add(id)?;
-                            }
-                        } else {
-                            if retry_fail && fail_store.lock().unwrap().has(&id) {
-                                fail_store.lock().unwrap().remove(&id)?;
-                            }
-                        }
-
-                        Ok(())
-                    })
+                    ids.into_par_iter()
+                        .try_for_each(|id| sync(id, &token, &fail_store))
                 })
                 .and_then(|_| {
                     fail_store
@@ -348,6 +335,10 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 return Err(err);
+            }
+
+            if retry_fail {
+                return Ok(());
             }
 
             page += 1;
