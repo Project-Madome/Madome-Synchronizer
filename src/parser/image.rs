@@ -216,7 +216,13 @@ impl Parser for Image {
 
         let rd = client.get(self.url()?.as_str()).send()?.text()?;
 
-        let rd = &rd[rd.find("=").unwrap() + 1..];
+        // panic
+        let i = rd.find("=").ok_or_else(|| {
+            anyhow::Error::msg(
+                "error occurs `request_data.find(\"=\")` in parser::Image::request()",
+            )
+        })?;
+        let rd = &rd[i + 1..];
 
         self.request_data = Some(Box::new(rd.to_string()));
         Ok(Box::new(self))
