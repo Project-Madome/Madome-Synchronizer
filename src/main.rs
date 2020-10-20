@@ -185,15 +185,6 @@ fn add_book(book: Book, token: &Token) -> anyhow::Result<()> {
     book_client.create_book(TokenLens::get(token).unwrap(), book)
 }
 
-fn add_fail(id: u32, fail_store: &Mutex<TextStore<u32>>) {
-    fail_store.lock().unwrap().add(id);
-    fail_store
-        .lock()
-        .unwrap()
-        .synchronize("./fails.txt")
-        .expect("Can't synchronize fails");
-}
-
 fn sync(id: u32, token: &Token, fail_store: &Mutex<TextStore<u32>>) -> anyhow::Result<()> {
     parse_images(id)
         .and_then(|images| stage::update(id, Stage::ParsedImages).and_then(|_| Ok(images)))
@@ -214,7 +205,12 @@ fn sync(id: u32, token: &Token, fail_store: &Mutex<TextStore<u32>>) -> anyhow::R
             Ok(())
         })
         .map_err(|err| {
-            add_fail(id, &fail_store);
+            if err.to_string().contains("Not Found") {
+                fail_store.lock().unwrap().remove(&id);
+            } else {
+                fail_store.lock().unwrap().add(id);
+            }
+
             stage::update(id, Stage::Fail(&err)).unwrap();
             err
         })
@@ -277,6 +273,12 @@ fn main() -> anyhow::Result<()> {
         }
 
         'a: loop {
+            // 파싱할 작품이 존재하는지부터 체크해야됨
+            // 근데 이거는 retry_fail인 경우나
+            // specified id를 입력 받은 경우에만
+            // 하게 해도 될 거 같음
+            // 그냥 parser::Image::request()에서 404에러 내자
+
             let ids = if retry_fail {
                 let r = fail_store
                     .lock()
