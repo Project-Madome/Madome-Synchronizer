@@ -19,22 +19,16 @@ where
         self.inner.iter()
     }
 
-    pub fn add(&mut self, value: T) -> anyhow::Result<()> {
-        if let true = self.inner.insert(value) {
-            return Ok(());
-        }
-        Err(anyhow::Error::msg("Can't insert"))
+    pub fn add(&mut self, value: T) -> bool {
+        self.inner.insert(value)
     }
 
     pub fn has(&self, value: &T) -> bool {
         self.inner.contains(value)
     }
 
-    pub fn remove(&mut self, value: &T) -> anyhow::Result<()> {
-        if let true = self.inner.remove(value) {
-            return Ok(());
-        }
-        Err(anyhow::Error::msg("Can't remove"))
+    pub fn remove(&mut self, value: &T) -> bool {
+        self.inner.remove(value)
     }
 
     pub fn synchronize(&self, path: &str) -> std::io::Result<()> {
