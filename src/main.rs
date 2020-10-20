@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow;
 use env_logger;
-use log::{debug, error, info, trace};
+use log::{error, info, trace};
 use madome_client::auth::Token;
 use madome_client::book::{Book, Language};
 use madome_client::{AuthClient, BookClient, FileClient};
@@ -217,7 +217,7 @@ fn sync(id: u32, token: &Token, fail_store: &Mutex<TextStore<u32>>) -> anyhow::R
         })
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     init_logger();
 
     rayon::ThreadPoolBuilder::new()
@@ -226,103 +226,131 @@ fn main() {
         .unwrap();
 
     loop {
-        let a = thread::spawn(|| -> anyhow::Result<()> {
-            let config = Config::new();
+        let config = Config::new();
 
-            info!("{:#?}", config);
+        info!("{:#?}", config);
 
-            let Config {
-                mut page,
-                per_page,
-                latency,
-                infinity_synchronize,
-                retry_fail,
-                specified_id,
-            } = config;
+        let Config {
+            mut page,
+            per_page,
+            latency,
+            infinity_synchronize,
+            retry_fail,
+            specified_id,
+        } = config;
 
-            let auth_client = AuthClient::new(MADOME_URL);
-            let book_client = BookClient::new(MADOME_URL);
+        let auth_client = AuthClient::new(MADOME_URL);
+        let book_client = BookClient::new(MADOME_URL);
 
-            let token = fs::read("./.token")?;
-            let token = String::from_utf8(token)?.trim().to_string();
-            let token = Token { token };
-            let token = TokenManager::refresh(&auth_client, token)?;
-            let fail_store = Mutex::new(TextStore::from_file("./fail_store.txt")?);
+        let token = fs::read("./.token")?;
+        let token = String::from_utf8(token)?.trim().to_string();
+        let token = Token { token };
+        let token = TokenManager::refresh(&auth_client, token)?;
+        let fail_store = Mutex::new(TextStore::from_file("./fail_store.txt")?);
 
-            let is_not_fail = |id: &u32| {
-                if retry_fail {
-                    return true;
-                }
-                !(fail_store.lock().unwrap().has(id))
-            };
-            let is_notfound_error = |err: &anyhow::Error| {
-                err.to_string()
-                    .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())
-            };
+        let is_not_fail = |id: &u32| {
+            if retry_fail {
+                return true;
+            }
+            !(fail_store.lock().unwrap().has(id))
+        };
+        let is_not_found_error = |err: &anyhow::Error| {
+            err.to_string()
+                .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())
+        };
 
-            if let Some(id) = specified_id {
-                sync(id, &token, &fail_store).unwrap();
-                std::process::exit(0)
+        if let Some(id) = specified_id {
+            let already = book_client
+                .get_image_list(TokenLens::get(&token).unwrap(), id)
+                .is_ok();
+
+            if already {
+                info!("Already has book in Madome");
+            } else {
+                sync(id, &token, &fail_store)?;
+                if fail_store.lock().unwrap().has(&id) {
+                    fail_store.lock().unwrap().remove(&id)?;
+                };
             }
 
-            'a: loop {
-                let ids = if retry_fail {
-                    let r = fail_store
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .map(|id| *id)
+            std::process::exit(0)
+        }
+
+        'a: loop {
+            let ids = if retry_fail {
+                let r = fail_store
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|id| *id)
+                    .collect::<Vec<_>>();
+
+                Ok(r)
+            } else {
+                parse_ids(page, per_page, Language::Korean)
+            };
+
+            let r = ids
+                .and_then(|ids| {
+                    let ids = ids
+                        .into_par_iter()
+                        .filter(is_not_fail)
+                        .filter_map(|id| {
+                            book_client
+                                .get_image_list(TokenLens::get(&token).unwrap(), id)
+                                .err()
+                                .filter(is_not_found_error)
+                                .and_then(|_| Some(id))
+                        })
                         .collect::<Vec<_>>();
 
-                    Ok(r)
-                } else {
-                    parse_ids(page, per_page, Language::Korean)
-                };
-
-                let r = ids
-                    .and_then(|ids| {
-                        let ids = ids
-                            .into_par_iter()
-                            .filter(is_not_fail)
-                            .filter_map(|id| {
-                                book_client
-                                    .get_image_list(TokenLens::get(&token).unwrap(), id)
-                                    .err()
-                                    .filter(is_notfound_error)
-                                    .and_then(|_| Some(id))
-                            })
-                            .collect::<Vec<_>>();
-
-                        Ok(ids)
-                    })
-                    .and_then(|ids| {
-                        if ids.is_empty() && !infinity_synchronize {
-                            return Err(anyhow::Error::msg("empty ids"));
-                        }
-
-                        Ok(ids)
-                    })
-                    .and_then(|ids| {
-                        ids.into_par_iter()
-                            .try_for_each(|id| sync(id, &token, &fail_store))
-                    });
-
-                if let Err(err) = r {
-                    if err.to_string() == "empty ids" {
-                        page = 1;
-                        thread::sleep(Duration::from_secs(latency));
-                        continue 'a;
+                    Ok(ids)
+                })
+                .and_then(|ids| {
+                    if ids.is_empty() && !infinity_synchronize {
+                        return Err(anyhow::Error::msg("empty ids"));
                     }
 
-                    return Err(err);
+                    Ok(ids)
+                })
+                .and_then(|ids| {
+                    ids.into_par_iter().try_for_each(|id| {
+                        if let Err(err) = sync(id, &token, &fail_store) {
+                            error!("{:#?}", err);
+
+                            if !fail_store.lock().unwrap().has(&id) {
+                                fail_store.lock().unwrap().add(id)?;
+                            }
+                        } else {
+                            if retry_fail && fail_store.lock().unwrap().has(&id) {
+                                fail_store.lock().unwrap().remove(&id)?;
+                            }
+                        }
+
+                        Ok(())
+                    })
+                })
+                .and_then(|_| {
+                    fail_store
+                        .lock()
+                        .unwrap()
+                        .synchronize("./fail_store.txt")
+                        .expect("Can't synchronize fail_store");
+
+                    Ok(())
+                });
+
+            if let Err(err) = r {
+                if err.to_string() == "empty ids" {
+                    page = 1;
+                    thread::sleep(Duration::from_secs(latency));
+                    continue 'a;
                 }
 
-                page += 1;
+                return Err(err);
             }
-        });
 
-        if let Err(err) = a.join() {
-            error!("{:#?}", err);
+            page += 1;
         }
     }
 }
