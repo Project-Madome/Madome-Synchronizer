@@ -2,7 +2,7 @@ extern crate madome_synchronizer;
 
 use std::env;
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
@@ -19,7 +19,7 @@ use fp_core::lens::Lens;
 use crate::madome_synchronizer::parser;
 use crate::madome_synchronizer::parser::Parser;
 
-use crate::madome_synchronizer::stage::{self, Stage, StageR, State};
+use crate::madome_synchronizer::stage::{self, Stage, StageR, StageUpdater, State};
 use crate::madome_synchronizer::utils::{get_ext, IntoResultVec, TextStore};
 
 const MADOME_URL: &'static str = "https://api.madome.app";
@@ -173,55 +173,46 @@ fn add_book(book: &Book, token: &Token) -> anyhow::Result<()> {
 }
 
 fn sync(id: u32, token: &Token, fail_store: &Mutex<TextStore<u32>>) -> anyhow::Result<()> {
+    let stage_updater = StageUpdater::new(id);
+
     let parse_images = |id: u32| {
-        stage::update(id, Stage::ParseImages, || {
+        stage::update(&stage_updater, Stage::ParseImages, || {
             let r = parse_images(id);
             StageR(State::Fulfilled, None, r)
         })
     };
 
     let add_thumbnail = |id: u32, image: &parser::File, token: &Token| {
-        stage::update(id, Stage::AddThumbnail, || {
+        stage::update(&stage_updater, Stage::AddThumbnail, || {
             let r = add_thumbnail(id, image, token);
             StageR(State::Fulfilled, None, r)
         })
     };
 
-    let progress_count_add_images = Arc::new(Mutex::new(0 as f64));
-
     let add_image =
         |id: u32, current_page: usize, max_page: usize, image: &parser::File, token: &Token| {
-            stage::update(id, Stage::AddImages, || {
+            stage::update(&stage_updater, Stage::AddImages, || {
                 let r = add_image(id, current_page, image, token);
-
-                let progress_count = Arc::clone(&progress_count_add_images);
-                let mut progress_count = progress_count.lock().unwrap();
-                *progress_count += 1.0;
-
-                StageR(
-                    State::Pending,
-                    Some((*progress_count / max_page as f64) * 100.0),
-                    r,
-                )
+                StageR(State::Pending, Some(max_page), r)
             })
         };
 
     let add_image_list_txt = |id: u32, image_list: &Vec<String>, token: &Token| {
-        stage::update(id, Stage::AddImageList, || {
+        stage::update(&stage_updater, Stage::AddImageList, || {
             let r = add_image_list_txt(id, image_list, token);
             StageR(State::Fulfilled, None, r)
         })
     };
 
     let parse_book = |id: u32, page: usize| {
-        stage::update(id, Stage::ParseBook, || {
+        stage::update(&stage_updater, Stage::ParseBook, || {
             let r = parse_book(id, page);
             StageR(State::Fulfilled, None, r)
         })
     };
 
     let add_book = |book: Book, token: &Token| {
-        stage::update(id, Stage::AddBook, || {
+        stage::update(&stage_updater, Stage::AddBook, || {
             let r = add_book(&book, token);
             StageR(State::Fulfilled, None, r)
         })
