@@ -131,9 +131,9 @@ impl Parser for Gallery {
 
         let client = reqwest::blocking::Client::builder().build()?;
 
-        let gallery_html = client.get(gallery_url.as_str()).send()?.text()?;
+        let gallery_html = client.get(&gallery_url).send()?.text()?;
 
-        let document = Html::parse_document(gallery_html.as_str());
+        let document = Html::parse_document(&gallery_html);
         let content_url_selector = Selector::parse("body > a").unwrap();
 
         let anchor_element = document.select(&content_url_selector).next().unwrap();
@@ -153,7 +153,7 @@ impl Parser for Gallery {
 
         let client = reqwest::blocking::Client::builder().build()?;
 
-        let content_html = client.get(content_url.as_str()).send()?.text()?;
+        let content_html = client.get(&content_url).send()?.text()?;
 
         self.request_data = Some(Box::new(content_html));
         Ok(Box::new(self))
@@ -163,7 +163,7 @@ impl Parser for Gallery {
     /// Charcters
     fn parse(&self) -> anyhow::Result<Self::ParseData> {
         trace!("Gallery::parse()");
-        let document = Html::parse_document(self.request_data()?.as_str());
+        let document = Html::parse_document(&self.request_data()?);
 
         // let id = Metadata::ID(Some(self.id));
         let characters = self.parse_metadata(&document, Metadata::Characters(None));
@@ -202,7 +202,7 @@ mod tests {
 
         let gallery = gallery.request()?;
 
-        let document = Html::parse_document(gallery.request_data()?.as_str());
+        let document = Html::parse_document(&gallery.request_data()?);
 
         let tags = gallery.parse_metadata(&document, Metadata::Tags(None));
 
@@ -224,7 +224,7 @@ mod tests {
 
         let gallery = gallery.request()?;
 
-        let document = Html::parse_document(gallery.request_data()?.as_str());
+        let document = Html::parse_document(&gallery.request_data()?);
 
         let tags = gallery.parse_metadata(&document, Metadata::Tags(None));
 
@@ -241,7 +241,7 @@ mod tests {
 
         let gallery = gallery.request()?;
 
-        let document = Html::parse_document(gallery.request_data()?.as_str());
+        let document = Html::parse_document(&gallery.request_data()?);
 
         let characters = gallery.parse_metadata(&document, Metadata::Characters(None));
 
@@ -275,7 +275,7 @@ mod tests {
 
         let gallery = gallery.request()?;
 
-        let document = Html::parse_document(gallery.request_data()?.as_str());
+        let document = Html::parse_document(&gallery.request_data()?);
 
         let characters = gallery.parse_metadata(&document, Metadata::Characters(None));
 
@@ -292,7 +292,7 @@ mod tests {
 
         let gallery = gallery.request()?;
 
-        let document = Html::parse_document(gallery.request_data()?.as_str());
+        let document = Html::parse_document(&gallery.request_data()?);
 
         let groups = gallery.parse_metadata(&document, Metadata::Groups(None));
 
@@ -309,7 +309,7 @@ mod tests {
 
         let gallery = gallery.request()?;
 
-        let document = Html::parse_document(gallery.request_data()?.as_str());
+        let document = Html::parse_document(&gallery.request_data()?);
 
         let groups = gallery.parse_metadata(&document, Metadata::Groups(None));
 

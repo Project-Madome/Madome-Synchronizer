@@ -59,7 +59,7 @@ impl Parser for Nozomi {
         debug!("end_bytes = {}", end_bytes);
 
         let bytes = client
-            .get(self.url()?.as_str())
+            .get(&self.url()?)
             .header("Range", format!("bytes={}-{}", start_bytes, end_bytes))
             .send()?
             .bytes()?;

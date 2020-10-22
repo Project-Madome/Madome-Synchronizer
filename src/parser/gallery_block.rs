@@ -264,7 +264,7 @@ impl Parser for GalleryBlock {
         trace!("GalleryBlock::request()");
         let client = reqwest::blocking::Client::builder().build()?;
 
-        let gallery_block_html = client.get(self.url()?.as_str()).send()?.text()?;
+        let gallery_block_html = client.get(&self.url()?).send()?.text()?;
 
         self.request_data = Some(Box::new(gallery_block_html));
 
@@ -273,7 +273,7 @@ impl Parser for GalleryBlock {
 
     fn parse(&self) -> anyhow::Result<Self::ParseData> {
         trace!("GalleryBlock::parse()");
-        let fragment = Html::parse_fragment(self.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&self.request_data()?);
 
         let id = Metadata::ID(Some(self.id));
         let title = self.parse_metadata(&fragment, Metadata::Title(None));
@@ -364,7 +364,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let title = gallery_block.parse_metadata(&fragment, Metadata::Title(None));
 
@@ -400,7 +400,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let content_url = gallery_block.parse_metadata(&fragment, Metadata::ThumbnailURL(None));
 
@@ -420,7 +420,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let artists = gallery_block.parse_metadata(&fragment, Metadata::Artists(None));
 
@@ -461,7 +461,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let artists = gallery_block.parse_metadata(&fragment, Metadata::Artists(None));
 
@@ -478,7 +478,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let content_type = gallery_block.parse_metadata(&fragment, Metadata::Language(None));
 
@@ -495,7 +495,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let content_type = gallery_block.parse_metadata(&fragment, Metadata::ContentType(None));
 
@@ -512,7 +512,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let series = gallery_block.parse_metadata(&fragment, Metadata::Series(None));
 
@@ -544,7 +544,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let series_nothing = gallery_block.parse_metadata(&fragment, Metadata::Series(None));
 
@@ -561,7 +561,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let tags = gallery_block.parse_metadata(&fragment, Metadata::Tags(None));
 
@@ -583,7 +583,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let tags = gallery_block.parse_metadata(&fragment, Metadata::Tags(None));
 
@@ -600,7 +600,7 @@ mod tests {
 
         let gallery_block = gallery_block.request()?;
 
-        let fragment = Html::parse_fragment(gallery_block.request_data()?.as_str());
+        let fragment = Html::parse_fragment(&gallery_block.request_data()?);
 
         let created_at = gallery_block.parse_metadata(&fragment, Metadata::CreatedAt(None));
 

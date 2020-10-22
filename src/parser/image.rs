@@ -94,7 +94,7 @@ impl File {
 
         debug!("x {}", x);
 
-        if let Ok(mut x) = u32::from_str_radix(x.as_str(), 16) {
+        if let Ok(mut x) = u32::from_str_radix(&x, 16) {
             let mut n: u32 = 3;
 
             debug!("x {}", x);
@@ -218,7 +218,7 @@ impl Parser for Image {
         trace!("Image::request()");
         let client = reqwest::blocking::Client::builder().build()?;
 
-        let response = client.get(self.url()?.as_str()).send()?;
+        let response = client.get(&self.url()?).send()?;
 
         if !response.status().is_success() {
             return Err(anyhow::Error::msg(response.status().to_string()));
@@ -246,7 +246,7 @@ impl Parser for Image {
             None => return Err(anyhow::Error::msg("Can't get request_data")),
         };
 
-        let image_info = serde_json::from_str::<'_, ImageInfo>(request_data.as_str())?;
+        let image_info = serde_json::from_str::<'_, ImageInfo>(&request_data)?;
 
         let files = image_info.files;
 
