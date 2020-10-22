@@ -2,7 +2,7 @@ extern crate madome_synchronizer;
 
 use std::env;
 use std::fs;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -19,7 +19,7 @@ use fp_core::lens::Lens;
 use crate::madome_synchronizer::parser;
 use crate::madome_synchronizer::parser::Parser;
 
-use crate::madome_synchronizer::stage::{self, Stage};
+use crate::madome_synchronizer::stage::{self, Stage, StageR, State};
 use crate::madome_synchronizer::utils::{get_ext, IntoResultVec, TextStore};
 
 const MADOME_URL: &'static str = "https://api.madome.app";
@@ -110,27 +110,18 @@ fn parse_images(id: u32) -> anyhow::Result<Vec<parser::File>> {
     parser::Image::new(id).request()?.parse()
 }
 
-fn add_images(id: u32, images: &Vec<parser::File>, token: &Token) -> anyhow::Result<()> {
+fn add_image(id: u32, page: usize, image: &parser::File, token: &Token) -> anyhow::Result<String> {
     let file_client = FileClient::new(FILE_REPOSITORY_URL);
 
-    images
-        .par_iter()
-        .enumerate()
-        .map(|(page, file)| (page + 1, file))
-        .map(|(page, image)| -> anyhow::Result<String> {
-            image.download(id, false).and_then(|(origin_url, buf)| {
-                let ext = get_ext(&origin_url).unwrap_or("jpg");
-                let filename = format!("{}.{}", page, ext);
-                let url_path = format!("image/library/{}/{}", id, filename);
+    image.download(id, false).and_then(|(origin_url, buf)| {
+        let ext = get_ext(&origin_url).unwrap_or("jpg");
+        let filename = format!("{}.{}", page, ext);
+        let url_path = format!("image/library/{}/{}", id, filename);
 
-                file_client.upload(TokenLens::get(token).unwrap(), &url_path, buf)?;
+        file_client.upload(TokenLens::get(token).unwrap(), &url_path, buf)?;
 
-                Ok(url_path)
-            })
-        })
-        .collect::<Vec<_>>()
-        .into_result_vec()
-        .and_then(|image_list| add_image_list(id, image_list, token))
+        Ok(url_path)
+    })
 }
 
 fn add_thumbnail(id: u32, image: &parser::File, token: &Token) -> anyhow::Result<()> {
@@ -143,7 +134,7 @@ fn add_thumbnail(id: u32, image: &parser::File, token: &Token) -> anyhow::Result
     })
 }
 
-fn add_image_list(id: u32, image_list: Vec<String>, token: &Token) -> anyhow::Result<()> {
+fn add_image_list_txt(id: u32, image_list: &Vec<String>, token: &Token) -> anyhow::Result<()> {
     let file_client = FileClient::new(FILE_REPOSITORY_URL);
 
     let image_list_txt = image_list
@@ -174,40 +165,93 @@ fn parse_book(id: u32, page: usize) -> anyhow::Result<Book> {
     })
 }
 
-fn add_book(book: Book, token: &Token) -> anyhow::Result<()> {
+fn add_book(book: &Book, token: &Token) -> anyhow::Result<()> {
     let book_client = BookClient::new(MADOME_URL);
 
-    let book: Book = book.into();
+    // let book: Book = book.into();
     book_client.create_book(TokenLens::get(token).unwrap(), book)
 }
 
 fn sync(id: u32, token: &Token, fail_store: &Mutex<TextStore<u32>>) -> anyhow::Result<()> {
+    let parse_images = |id: u32| {
+        stage::update(id, Stage::ParseImages, || {
+            let r = parse_images(id);
+            StageR(State::Fulfilled, None, r)
+        })
+    };
+
+    let add_thumbnail = |id: u32, image: &parser::File, token: &Token| {
+        stage::update(id, Stage::AddThumbnail, || {
+            let r = add_thumbnail(id, image, token);
+            StageR(State::Fulfilled, None, r)
+        })
+    };
+
+    let progress_count_add_images = Arc::new(Mutex::new(0 as f64));
+
+    let add_image =
+        |id: u32, current_page: usize, max_page: usize, image: &parser::File, token: &Token| {
+            stage::update(id, Stage::AddImages, || {
+                let r = add_image(id, current_page, image, token);
+
+                let progress_count = Arc::clone(&progress_count_add_images);
+                let mut progress_count = progress_count.lock().unwrap();
+                *progress_count += 1.0;
+
+                StageR(
+                    State::Pending,
+                    Some((*progress_count / max_page as f64) * 100.0),
+                    r,
+                )
+            })
+        };
+
+    let add_image_list_txt = |id: u32, image_list: &Vec<String>, token: &Token| {
+        stage::update(id, Stage::AddImageList, || {
+            let r = add_image_list_txt(id, image_list, token);
+            StageR(State::Fulfilled, None, r)
+        })
+    };
+
+    let parse_book = |id: u32, page: usize| {
+        stage::update(id, Stage::ParseBook, || {
+            let r = parse_book(id, page);
+            StageR(State::Fulfilled, None, r)
+        })
+    };
+
+    let add_book = |book: Book, token: &Token| {
+        stage::update(id, Stage::AddBook, || {
+            let r = add_book(&book, token);
+            StageR(State::Fulfilled, None, r)
+        })
+    };
+
     parse_images(id)
-        .and_then(|images| stage::update(id, Stage::ParsedImages).and_then(|_| Ok(images)))
         .and_then(|images| {
             add_thumbnail(id, &images[0], token)
-                .and_then(|_| stage::update(id, Stage::AddedThumbnail))
                 // add images and image_list.txt
-                .and_then(|_| add_images(id, &images, token))
-                .and_then(|_| stage::update(id, Stage::AddedImages))
+                .and_then(|_| {
+                    let images_len = images.len();
+                    images
+                        .par_iter()
+                        .enumerate()
+                        .map(|(i, image)| (i + 1, image))
+                        .map(|(page, image)| add_image(id, page, images_len, image, token))
+                        .collect::<Vec<_>>()
+                        .into_result_vec()
+                })
+                .and_then(|image_list| add_image_list_txt(id, &image_list, token))
                 .and_then(|_| Ok(images.len()))
         })
         .and_then(|images_len| parse_book(id, images_len))
-        .and_then(|book| stage::update(id, Stage::ParsedBook).and_then(|_| Ok(book)))
         .and_then(|book| add_book(book, token))
-        .and_then(|_| stage::update(id, Stage::AddedBook))
         .and_then(|_| {
             fail_store.lock().unwrap().remove(&id);
             Ok(())
         })
         .map_err(|err| {
-            if err.to_string().contains("Not Found") {
-                fail_store.lock().unwrap().remove(&id);
-            } else {
-                fail_store.lock().unwrap().add(id);
-            }
-
-            stage::update(id, Stage::Fail(&err)).unwrap();
+            fail_store.lock().unwrap().add(id);
             err
         })
 }
