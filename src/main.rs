@@ -147,7 +147,7 @@ fn add_image_list_txt(id: u32, image_list: &Vec<String>, token: &Token) -> anyho
 
     file_client.upload(
         TokenLens::get(token).unwrap(),
-        format!("image/library/{}/image_list.txt", id).as_str(),
+        &format!("image/library/{}/image_list.txt", id),
         image_list_txt.trim(),
     )
 }
@@ -284,9 +284,10 @@ fn main() -> anyhow::Result<()> {
             }
             !(fail_store.lock().unwrap().has(id))
         };
+
         let is_not_found_error = |err: &anyhow::Error| {
             err.to_string()
-                .contains(format!("{}", reqwest::StatusCode::NOT_FOUND).as_str())
+                .contains(&format!("{}", reqwest::StatusCode::NOT_FOUND))
         };
 
         if let Some(id) = specified_id {
@@ -302,6 +303,8 @@ fn main() -> anyhow::Result<()> {
 
             std::process::exit(0)
         }
+
+        let mut prev_last_id: u32 = 0;
 
         'a: loop {
             // 파싱할 작품이 존재하는지부터 체크해야됨
@@ -324,6 +327,20 @@ fn main() -> anyhow::Result<()> {
             };
 
             let r = ids
+                .and_then(|ids| {
+                    if infinity_synchronize {
+                        let curr_last_id = *ids.last().unwrap();
+
+                        if curr_last_id == prev_last_id {
+                            info!("The end infinity parse, Last ID = {}", curr_last_id);
+                            std::process::exit(0)
+                        } else {
+                            prev_last_id = curr_last_id;
+                        }
+                    }
+
+                    Ok(ids)
+                })
                 .and_then(|ids| {
                     let ids = ids
                         .into_par_iter()
