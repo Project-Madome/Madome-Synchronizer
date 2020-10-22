@@ -75,9 +75,13 @@ impl File {
         debug!("id_char utf16 code {}", c);
 
         let number_of_frontends = 3;
-        let mut subdomain = char::from_u32(97 + c % number_of_frontends)
-            .unwrap()
-            .to_string();
+        let mut subdomain = if self.has_webp() {
+            char::from_u32(97 + c % number_of_frontends)
+                .unwrap()
+                .to_string()
+        } else {
+            "b".to_string()
+        };
 
         debug!("1st subdomain {}", subdomain);
 
@@ -109,7 +113,7 @@ impl File {
 
         /* let image_url = if self.has_webp() == false {
             format!(
-                "https://{}a.hitomi.la/images/{}/{}{}/{}.{}",
+                "https://{}b.hitomi.la/images/{}/{}{}/{}.{}",
                 subdomain,
                 postfix[2],
                 postfix[0],
@@ -129,7 +133,7 @@ impl File {
         }; */
 
         let image_url = format!(
-            "https://{}a.hitomi.la/images/{}/{}{}/{}.{}",
+            "https://{}b.hitomi.la/images/{}/{}{}/{}.{}",
             subdomain,
             postfix[2],
             postfix[0],
