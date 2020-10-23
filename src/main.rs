@@ -382,6 +382,7 @@ fn main() -> anyhow::Result<()> {
 
             if let Err(err) = r {
                 if err.to_string() == "empty ids" {
+                    info!("Waiting next synchronize cycle.");
                     page = 1;
                     thread::sleep(Duration::from_secs(latency));
                     continue 'a;
