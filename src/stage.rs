@@ -1,25 +1,100 @@
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Mutex;
+use std::time;
 
 use log::{error, info};
+use rdkafka::producer::BaseProducer;
+use serde::Serialize;
+
+use super::kafka::producer;
+
+/* #[derive(Serialize)]
+pub struct TaskAddPayload<'a, ID>
+where
+    ID: Display + Serialize,
+{
+    id: &'a ID,
+}
+
+impl<'a, ID> TaskAddPayload<'a, ID>
+where
+    ID: Display + Serialize,
+{
+    pub fn new(id: &'a ID) -> Self {
+        Self { id }
+    }
+} */
+
+#[derive(Serialize)]
+pub struct TaskUpdatePayload<'a, ID>
+where
+    ID: Display + Serialize,
+{
+    id: &'a ID,
+    stage: &'a Stage,
+    state: &'a State,
+    progress: Option<f64>,
+}
+
+impl<'a, ID> TaskUpdatePayload<'a, ID>
+where
+    ID: Display + Serialize,
+{
+    pub fn new(id: &'a ID, stage: &'a Stage, state: &'a State, progress: Option<f64>) -> Self {
+        Self {
+            id,
+            stage,
+            state,
+            progress,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct TaskErrorPayload<'a, ID, E>
+where
+    ID: Display + Serialize,
+    E: Serialize,
+{
+    id: &'a ID,
+    stage: &'a Stage,
+    error: &'a E,
+}
+
+impl<'a, ID, E> TaskErrorPayload<'a, ID, E>
+where
+    ID: Display + Serialize,
+    E: Serialize,
+{
+    pub fn new(id: &'a ID, stage: &'a Stage, error: &'a E) -> Self {
+        Self { id, stage, error }
+    }
+}
 
 pub struct StageUpdater<ID>
 where
-    ID: Display,
+    ID: Display + Serialize,
 {
     id: ID,
     inner: Mutex<HashMap<u8, usize>>,
+    producer: BaseProducer,
 }
 
 impl<ID> StageUpdater<ID>
 where
-    ID: Display,
+    ID: Display + Serialize,
 {
     pub fn new(id: ID) -> Self {
+        let producer = match producer::create(vec!["192.168.0.21:9092"]) {
+            Ok(producer) => producer,
+            Err(err) => panic!("{:#?}", err),
+        };
+
         Self {
             id,
             inner: Mutex::new(HashMap::new()),
+            producer,
         }
     }
 
@@ -32,6 +107,13 @@ where
 
             if !inner.contains_key(&stage.as_u8()) {
                 inner.insert(stage.as_u8(), 0);
+                let payload = TaskUpdatePayload::new(&self.id, &stage, &State::Ready, None);
+                producer::send(
+                    &self.producer,
+                    "task-update",
+                    &(),
+                    &serde_json::to_string(&payload)?,
+                )?;
                 info!("{}: {}: {}", self.id, stage, State::Ready);
             }
         }
@@ -50,30 +132,48 @@ where
             Ok(r) => {
                 if let Some(max_call_count) = max_call_count {
                     let progress = (current_call_count as f64 / max_call_count as f64) * 100.0;
-                    // debug!("{} / {} = {}", current_call_count, max_call_count, progress);
-                    if 100.0 <= progress {
-                        info!(
-                            "{}: {}: {}: {} / {} => {}%",
-                            self.id,
-                            stage,
-                            State::Fulfilled,
-                            current_call_count,
-                            max_call_count,
-                            progress
-                        );
+
+                    let state = if 100.0 <= progress {
+                        State::Fulfilled
                     } else {
-                        info!(
-                            "{}: {}: {}: {} / {} => {}%",
-                            self.id, stage, state, current_call_count, max_call_count, progress
-                        );
-                    }
+                        state
+                    };
+
+                    let payload = TaskUpdatePayload::new(&self.id, &stage, &state, Some(progress));
+                    producer::send(
+                        &self.producer,
+                        "task-update",
+                        &(),
+                        &serde_json::to_string(&payload)?,
+                    )?;
+                    info!(
+                        "{}: {}: {}: {} / {} => {}%",
+                        self.id, stage, state, current_call_count, max_call_count, progress
+                    );
                 } else {
+                    let payload = TaskUpdatePayload::new(&self.id, &stage, &state, None);
+                    producer::send(
+                        &self.producer,
+                        "task-update",
+                        &(),
+                        &serde_json::to_string(&payload)?,
+                    )?;
                     info!("{}: {}: {}", self.id, stage, state);
+                    self.producer.flush(time::Duration::from_secs(2));
                 }
                 Ok(r)
             }
             Err(err) => {
+                let err_msg = format!("{:#?}", err);
+                let payload = TaskErrorPayload::new(&self.id, &stage, &err_msg);
+                producer::send(
+                    &self.producer,
+                    "task-error",
+                    &(),
+                    &serde_json::to_string(&payload)?,
+                )?;
                 error!("{}: {}: Error: {:#?}", self.id, stage, err);
+                self.producer.flush(time::Duration::from_secs(2));
                 Err(err)
             }
         }
@@ -82,7 +182,7 @@ where
 
 pub fn update<ID, T, F>(stage_updater: &StageUpdater<ID>, stage: Stage, f: F) -> anyhow::Result<T>
 where
-    ID: Display,
+    ID: Display + Serialize,
     F: Fn() -> StageR<T>,
 {
     stage_updater.update(stage, f)
@@ -92,6 +192,7 @@ pub type MaxCallCount = usize;
 
 pub struct StageR<T>(pub State, pub Option<MaxCallCount>, pub anyhow::Result<T>);
 
+#[derive(Serialize)]
 pub enum State {
     Ready,
     Pending,
@@ -110,6 +211,7 @@ impl Display for State {
     }
 }
 
+#[derive(Serialize)]
 pub enum Stage {
     ParseBook,
     ParseImages,
