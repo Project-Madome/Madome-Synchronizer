@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow;
 use env_logger;
-use log::{info, trace};
+use log::{error, info, trace};
 use madome_client::auth::Token;
 use madome_client::book::{Book, Language};
 use madome_client::{AuthClient, BookClient, FileClient};
@@ -24,6 +24,8 @@ use crate::madome_synchronizer::utils::{get_ext, IntoResultVec, TextStore};
 
 const MADOME_URL: &'static str = "https://api.madome.app";
 const FILE_REPOSITORY_URL: &'static str = "https://file.madome.app";
+
+static DRY_RUN: bool = true;
 
 fn init_logger() {
     env_logger::init()
@@ -65,6 +67,7 @@ struct Config {
     latency: u64,
 
     specified_id: Option<u32>,
+    // dry_run: bool,
 }
 
 impl Config {
@@ -94,6 +97,7 @@ impl Config {
             latency,
 
             specified_id,
+            // dry_run,
         }
     }
 }
@@ -118,7 +122,9 @@ fn add_image(id: u32, page: usize, image: &parser::File, token: &Token) -> anyho
         let filename = format!("{}.{}", page, ext);
         let url_path = format!("image/library/{}/{}", id, filename);
 
-        file_client.upload(TokenLens::get(token).unwrap(), &url_path, buf)?;
+        if !DRY_RUN {
+            file_client.upload(TokenLens::get(token).unwrap(), &url_path, buf)?;
+        }
 
         Ok(url_path)
     })
@@ -130,7 +136,12 @@ fn add_thumbnail(id: u32, image: &parser::File, token: &Token) -> anyhow::Result
     image.download(id, true).and_then(|(origin_url, buf)| {
         let ext = get_ext(&origin_url).unwrap_or("jpg");
         let url_path = format!("image/library/{}/thumbnail.{}", id, ext);
-        file_client.upload(TokenLens::get(&token).unwrap(), url_path, buf)
+
+        if !DRY_RUN {
+            return file_client.upload(TokenLens::get(&token).unwrap(), url_path, buf);
+        }
+
+        Ok(())
     })
 }
 
@@ -145,11 +156,15 @@ fn add_image_list_txt(id: u32, image_list: &Vec<String>, token: &Token) -> anyho
             acc
         });
 
-    file_client.upload(
-        TokenLens::get(token).unwrap(),
-        &format!("image/library/{}/image_list.txt", id),
-        image_list_txt.trim(),
-    )
+    if !DRY_RUN {
+        return file_client.upload(
+            TokenLens::get(token).unwrap(),
+            &format!("image/library/{}/image_list.txt", id),
+            image_list_txt.trim(),
+        );
+    }
+
+    Ok(())
 }
 
 fn parse_book(id: u32, page: usize) -> anyhow::Result<Book> {
@@ -169,7 +184,11 @@ fn add_book(book: &Book, token: &Token) -> anyhow::Result<()> {
     let book_client = BookClient::new(MADOME_URL);
 
     // let book: Book = book.into();
-    book_client.create_book(TokenLens::get(token).unwrap(), book)
+    if !DRY_RUN {
+        return book_client.create_book(TokenLens::get(token).unwrap(), book);
+    }
+
+    Ok(())
 }
 
 fn sync(id: u32, token: &Token, fail_store: &Mutex<TextStore<u32>>) -> anyhow::Result<()> {
@@ -275,7 +294,11 @@ fn main() -> anyhow::Result<()> {
         let token = fs::read("./.token")?;
         let token = String::from_utf8(token)?.trim().to_string();
         let token = Token { token };
-        let token = TokenManager::refresh(&auth_client, token)?;
+        let token = if !DRY_RUN {
+            TokenManager::refresh(&auth_client, token)?
+        } else {
+            token
+        };
         let fail_store = Mutex::new(TextStore::from_file("./fail_store.txt")?);
 
         let is_not_fail = |id: &u32| {
@@ -294,11 +317,12 @@ fn main() -> anyhow::Result<()> {
             let already = book_client
                 .get_image_list(TokenLens::get(&token).unwrap(), id)
                 .is_ok();
+            let already = if DRY_RUN { false } else { already };
 
             if already {
                 info!("Already has book in Madome");
             } else {
-                sync(id, &token, &fail_store).unwrap_or_else(|_| {});
+                sync(id, &token, &fail_store).unwrap_or_else(|err| error!("{:#?}", err));
             }
 
             std::process::exit(0)
