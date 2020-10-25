@@ -18,5 +18,6 @@ log = { version = "0.4.11", features = ["max_level_trace", "release_max_level_in
 env_logger = "0.7.1"
 fp-core = "0.1.9"
 rayon = "1.4.1"
+rdkafka = { version = "0.24", features = ["cmake-build"] }
 # madome_client = { path = "../Madome-API-rs" }
 madome_client = { version = "0.4.1" }
