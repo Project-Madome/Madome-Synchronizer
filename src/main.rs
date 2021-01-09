@@ -256,6 +256,8 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
 
     loop {
+        thread::sleep(Duration::from_secs(3));
+
         let config = Config::new();
 
         info!("{:#?}", config);
