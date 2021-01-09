@@ -525,6 +525,7 @@ mod tests {
             "the melancholy of haruhi suzumiya",
             "to love-ru",
             "urusei yatsura",
+            "yuragisou no yuuna-san",
             "yuru camp",
         ]
         .iter()
