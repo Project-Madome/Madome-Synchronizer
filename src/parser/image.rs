@@ -98,10 +98,10 @@ impl File {
             let mut n: u32 = 3;
 
             debug!("x {}", x);
-            if x < 0x30 {
+            if x < 0x80 {
                 n = 2;
             }
-            if x < 0x09 {
+            if x < 0x59 {
                 x = 1;
             }
             debug!("n {}", n);
