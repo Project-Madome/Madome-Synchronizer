@@ -2,6 +2,7 @@ extern crate madome_synchronizer;
 
 use std::env;
 use std::fs;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -417,18 +418,25 @@ fn main() -> anyhow::Result<()> {
                     Ok((images_not_ready_ids, info_not_ready_ids))
                 })
                 .and_then(|(images_not_ready_ids, info_not_ready_ids)| {
-                    let info_synced_ids: Vec<u32> = vec![];
+                    
+                    let info_synced_ids = Arc::new(Mutex::new(vec![]));
 
                     images_not_ready_ids.into_par_iter().for_each(|id| {
-                        sync(id, &token, &fail_store, true, false).map(|_| {
+
+                        sync(id, &token, &fail_store, true, false).and_then( |_| {
                             if info_not_ready_ids.contains(&id) {
                                 sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
+
+                                let info_synced_ids = Arc::clone(&info_synced_ids);
+                                info_synced_ids.lock().unwrap().push(id);
                             }
+                            Ok(())
                         }).unwrap_or_else(|_| {});
                     });
 
                     info_not_ready_ids.into_par_iter().for_each(|id| {
-                        if !info_synced_ids.contains(&id) {
+                        let info_synced_ids = Arc::clone(&info_synced_ids);
+                        if !info_synced_ids.lock().unwrap().contains(&id) {
                             sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
                         }
                     });
