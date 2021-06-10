@@ -19,4 +19,4 @@ env_logger = "0.7.1"
 fp-core = "0.1.9"
 rayon = "1.4.1"
 # madome_client = { path = "../Madome-API-rs" }
-madome_client = { version = "0.4.1" }
+madome_client = { version = "0.4.2" }

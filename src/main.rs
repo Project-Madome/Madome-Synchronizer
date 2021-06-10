@@ -172,7 +172,13 @@ fn add_book(book: &Book, token: &Token) -> anyhow::Result<()> {
     book_client.create_book(TokenLens::get(token).unwrap(), book)
 }
 
-fn sync(id: u32, token: &Token, fail_store: &Mutex<TextStore<u32>>) -> anyhow::Result<()> {
+fn sync(
+    id: u32,
+    token: &Token,
+    fail_store: &Mutex<TextStore<u32>>,
+    sync_images: bool,
+    sync_info: bool,
+) -> anyhow::Result<()> {
     let stage_updater = StageUpdater::new(id);
 
     let parse_images = |id: u32| {
@@ -218,40 +224,59 @@ fn sync(id: u32, token: &Token, fail_store: &Mutex<TextStore<u32>>) -> anyhow::R
         })
     };
 
-    parse_images(id)
-        .and_then(|images| {
-            add_thumbnail(id, &images[0], token)
-                // add images and image_list.txt
-                .and_then(|_| {
-                    let images_len = images.len();
-                    images
-                        .par_iter()
-                        .enumerate()
-                        .map(|(i, image)| (i + 1, image))
-                        .map(|(page, image)| add_image(id, page, images_len, image, token))
-                        .collect::<Vec<_>>()
-                        .into_result_vec()
-                })
-                .and_then(|image_list| add_image_list_txt(id, &image_list, token))
-                .and_then(|_| Ok(images.len()))
-        })
-        .and_then(|images_len| parse_book(id, images_len))
-        .and_then(|book| add_book(book, token))
-        .and_then(|_| {
-            fail_store.lock().unwrap().remove(&id);
-            Ok(())
-        })
-        .map_err(|err| {
-            fail_store.lock().unwrap().add(id);
-            err
-        })
+    if sync_info {
+        return parse_images(id)
+            .and_then(|images| Ok(images.len()))
+            .and_then(|images_len| {
+                parse_book(id, images_len)
+                    .and_then(|book| add_book(book, token))
+                    .and_then(|_| {
+                        fail_store.lock().unwrap().remove(&id);
+                        Ok(())
+                    })
+                    .map_err(|err| {
+                        fail_store.lock().unwrap().add(id);
+                        err
+                    })
+            });
+    }
+
+    if sync_images {
+        return parse_images(id)
+            .and_then(|images| {
+                add_thumbnail(id, &images[0], token)
+                    // add images and image_list.txt
+                    .and_then(|_| {
+                        let images_len = images.len();
+                        images
+                            .par_iter()
+                            .enumerate()
+                            .map(|(i, image)| (i + 1, image))
+                            .map(|(page, image)| add_image(id, page, images_len, image, token))
+                            .collect::<Vec<_>>()
+                            .into_result_vec()
+                    })
+                    .and_then(|image_list| add_image_list_txt(id, &image_list, token))
+                    .and_then(|_| Ok(images.len()))
+            })
+            .and_then(|_| {
+                fail_store.lock().unwrap().remove(&id);
+                Ok(())
+            })
+            .map_err(|err| {
+                fail_store.lock().unwrap().add(id);
+                err
+            });
+    }
+
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
     init_logger();
 
     rayon::ThreadPoolBuilder::new()
-        .num_threads(30)
+        .num_threads(15)
         .build_global()
         .unwrap();
 
@@ -293,14 +318,24 @@ fn main() -> anyhow::Result<()> {
         };
 
         if let Some(id) = specified_id {
-            let already = book_client
+            let already_images = book_client
                 .get_image_list(TokenLens::get(&token).unwrap(), id)
                 .is_ok();
 
-            if already {
+            let already_book_info = book_client
+                .get_book_by_id(TokenLens::get(&token).unwrap(), id as i32)
+                .is_ok();
+
+            if already_images && already_book_info {
                 info!("Already has book in Madome");
-            } else {
-                sync(id, &token, &fail_store).unwrap_or_else(|_| {});
+            }
+
+            if !already_images {
+                sync(id, &token, &fail_store, true, false).unwrap_or_else(|_| {});
+            }
+
+            if !already_book_info {
+                sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
             }
 
             std::process::exit(0)
@@ -344,7 +379,8 @@ fn main() -> anyhow::Result<()> {
                     Ok(ids)
                 })
                 .and_then(|ids| {
-                    let ids = ids
+                    let images_not_ready_ids = ids
+                        .clone()
                         .into_par_iter()
                         .filter(is_not_fail)
                         .filter_map(|id| {
@@ -356,19 +392,39 @@ fn main() -> anyhow::Result<()> {
                         })
                         .collect::<Vec<_>>();
 
-                    Ok(ids)
+                    let info_not_ready_ids = ids
+                        .into_par_iter()
+                        .filter(is_not_fail)
+                        .filter_map(|id| {
+                            book_client
+                                .get_book_by_id(TokenLens::get(&token).unwrap(), id as i32)
+                                .err()
+                                .filter(is_not_found_error)
+                                .and_then(|_| Some(id))
+                        })
+                        .collect::<Vec<_>>();
+
+                    Ok((images_not_ready_ids, info_not_ready_ids))
                 })
-                .and_then(|ids| {
-                    if ids.is_empty() && !infinity_synchronize {
+                .and_then(|(images_not_ready_ids, info_not_ready_ids)| {
+                    if images_not_ready_ids.is_empty()
+                        && info_not_ready_ids.is_empty()
+                        && !infinity_synchronize
+                    {
                         return Err(anyhow::Error::msg("empty ids"));
                     }
 
-                    Ok(ids)
+                    Ok((images_not_ready_ids, info_not_ready_ids))
                 })
-                .and_then(|ids| {
-                    ids.into_par_iter().for_each(|id| {
-                        sync(id, &token, &fail_store).unwrap_or_else(|_| {});
+                .and_then(|(images_not_ready_ids, info_not_ready_ids)| {
+                    images_not_ready_ids.into_par_iter().for_each(|id| {
+                        sync(id, &token, &fail_store, true, false).unwrap_or_else(|_| {});
                     });
+
+                    info_not_ready_ids.into_par_iter().for_each(|id| {
+                        sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
+                    });
+
 
                     Ok(())
                 })

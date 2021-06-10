@@ -68,7 +68,7 @@ impl File {
             .unwrap()
             .to_string()
             .encode_utf16()
-            .last()
+            .next()
             .unwrap()
             .into();
 
