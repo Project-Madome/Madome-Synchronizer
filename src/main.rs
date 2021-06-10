@@ -417,12 +417,20 @@ fn main() -> anyhow::Result<()> {
                     Ok((images_not_ready_ids, info_not_ready_ids))
                 })
                 .and_then(|(images_not_ready_ids, info_not_ready_ids)| {
+                    let info_synced_ids: Vec<u32> = vec![];
+
                     images_not_ready_ids.into_par_iter().for_each(|id| {
-                        sync(id, &token, &fail_store, true, false).unwrap_or_else(|_| {});
+                        sync(id, &token, &fail_store, true, false).map(|_| {
+                            if info_not_ready_ids.contains(&id) {
+                                sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
+                            }
+                        }).unwrap_or_else(|_| {});
                     });
 
                     info_not_ready_ids.into_par_iter().for_each(|id| {
-                        sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
+                        if !info_synced_ids.contains(&id) {
+                            sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
+                        }
                     });
 
 
