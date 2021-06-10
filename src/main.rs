@@ -276,7 +276,7 @@ fn main() -> anyhow::Result<()> {
     init_logger();
 
     rayon::ThreadPoolBuilder::new()
-        .num_threads(15)
+        .num_threads(25)
         .build_global()
         .unwrap();
 
