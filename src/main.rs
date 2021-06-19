@@ -380,29 +380,32 @@ fn main() -> anyhow::Result<()> {
                     Ok(ids)
                 })
                 .and_then(|ids| {
-                    let ids = ids.into_par_iter().filter(|id| {
-                        let already_images = book_client
-                        .get_image_list(TokenLens::get(&token).unwrap(), *id)
-                        .is_ok();
+                    let ids = ids
+                        .into_par_iter()
+                        .filter(|id| {
+                            let already_images = book_client
+                                .get_image_list(TokenLens::get(&token).unwrap(), *id)
+                                .is_ok();
 
-                    let already_book_info = book_client
-                        .get_book_by_id(TokenLens::get(&token).unwrap(), *id as i32)
-                        .is_ok();
+                            let already_book_info = book_client
+                                .get_book_by_id(TokenLens::get(&token).unwrap(), *id as i32)
+                                .is_ok();
 
-                    if already_images && already_book_info {
-                        info!("Already has book in Madome");
-                    }
+                            /* if already_images && already_book_info {
+                                info!("Already has book in Madome");
+                            } */
 
-                    if !already_images {
-                        sync(*id, &token, &fail_store, true, false).unwrap_or_else(|_| {});
-                    }
+                            if !already_images {
+                                sync(*id, &token, &fail_store, true, false).unwrap_or_else(|_| {});
+                            }
 
-                    if !already_book_info {
-                        sync(*id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
-                    }
+                            if !already_book_info {
+                                sync(*id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
+                            }
 
-                    !already_book_info || !already_images
-                    }).collect::<Vec<_>>();
+                            !already_book_info || !already_images
+                        })
+                        .collect::<Vec<_>>();
 
                     /* let images_not_ready_ids = ids
                         .clone()
@@ -432,9 +435,7 @@ fn main() -> anyhow::Result<()> {
                     Ok(ids)
                 })
                 .and_then(|ids| {
-                    if ids.is_empty()
-                        && !infinity_synchronize
-                    {
+                    if ids.is_empty() && !infinity_synchronize {
                         return Err(anyhow::Error::msg("empty ids"));
                     }
 
@@ -442,14 +443,12 @@ fn main() -> anyhow::Result<()> {
                 })
                 /* .and_then(|(images_not_ready_ids, info_not_ready_ids)| {
                     let info_synced_ids = Arc::new(Mutex::new(vec![]));
-
                     images_not_ready_ids.into_par_iter().for_each(|id| {
                         sync(id, &token, &fail_store, true, false)
                             .and_then(|_| {
                                 if info_not_ready_ids.contains(&id) {
                                     sync(id, &token, &fail_store, false, true)
                                         .unwrap_or_else(|_| {});
-
                                     let info_synced_ids = Arc::clone(&info_synced_ids);
                                     info_synced_ids.lock().unwrap().push(id);
                                 }
@@ -457,14 +456,12 @@ fn main() -> anyhow::Result<()> {
                             })
                             .unwrap_or_else(|_| {});
                     });
-
                     info_not_ready_ids.into_par_iter().for_each(|id| {
                         let info_synced_ids = Arc::clone(&info_synced_ids);
                         if !info_synced_ids.lock().unwrap().contains(&id) {
                             sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
                         }
                     });
-
                     Ok(())
                 }) */
                 .and_then(|_| {
