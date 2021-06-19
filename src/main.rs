@@ -2,7 +2,7 @@ extern crate madome_synchronizer;
 
 use std::env;
 use std::fs;
-use std::sync::Arc;
+// use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -313,10 +313,10 @@ fn main() -> anyhow::Result<()> {
             !(fail_store.lock().unwrap().has(id))
         }; */
 
-        let is_not_found_error = |err: &anyhow::Error| {
+        /* let is_not_found_error = |err: &anyhow::Error| {
             err.to_string()
                 .contains(&format!("{}", reqwest::StatusCode::NOT_FOUND))
-        };
+        }; */
 
         if let Some(id) = specified_id {
             let already_images = book_client
@@ -380,13 +380,13 @@ fn main() -> anyhow::Result<()> {
                     Ok(ids)
                 })
                 .and_then(|ids| {
-                    /* ids.into_par_iter().for_each(|id| {
+                    let ids = ids.into_par_iter().filter(|id| {
                         let already_images = book_client
-                        .get_image_list(TokenLens::get(&token).unwrap(), id)
+                        .get_image_list(TokenLens::get(&token).unwrap(), *id)
                         .is_ok();
 
                     let already_book_info = book_client
-                        .get_book_by_id(TokenLens::get(&token).unwrap(), id as i32)
+                        .get_book_by_id(TokenLens::get(&token).unwrap(), *id as i32)
                         .is_ok();
 
                     if already_images && already_book_info {
@@ -394,15 +394,17 @@ fn main() -> anyhow::Result<()> {
                     }
 
                     if !already_images {
-                        sync(id, &token, &fail_store, true, false).unwrap_or_else(|_| {});
+                        sync(*id, &token, &fail_store, true, false).unwrap_or_else(|_| {});
                     }
 
                     if !already_book_info {
-                        sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
+                        sync(*id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
                     }
-                    }); */
 
-                    let images_not_ready_ids = ids
+                    !already_book_info || !already_images
+                    }).collect::<Vec<_>>();
+
+                    /* let images_not_ready_ids = ids
                         .clone()
                         .into_par_iter()
                         // .filter(is_not_fail)
@@ -425,21 +427,20 @@ fn main() -> anyhow::Result<()> {
                                 .filter(is_not_found_error)
                                 .and_then(|_| Some(id))
                         })
-                        .collect::<Vec<_>>();
+                        .collect::<Vec<_>>(); */
 
-                    Ok((images_not_ready_ids, info_not_ready_ids))
+                    Ok(ids)
                 })
-                .and_then(|(images_not_ready_ids, info_not_ready_ids)| {
-                    if images_not_ready_ids.is_empty()
-                        && info_not_ready_ids.is_empty()
+                .and_then(|ids| {
+                    if ids.is_empty()
                         && !infinity_synchronize
                     {
                         return Err(anyhow::Error::msg("empty ids"));
                     }
 
-                    Ok((images_not_ready_ids, info_not_ready_ids))
+                    Ok(())
                 })
-                .and_then(|(images_not_ready_ids, info_not_ready_ids)| {
+                /* .and_then(|(images_not_ready_ids, info_not_ready_ids)| {
                     let info_synced_ids = Arc::new(Mutex::new(vec![]));
 
                     images_not_ready_ids.into_par_iter().for_each(|id| {
@@ -465,7 +466,7 @@ fn main() -> anyhow::Result<()> {
                     });
 
                     Ok(())
-                })
+                }) */
                 .and_then(|_| {
                     fail_store
                         .lock()
