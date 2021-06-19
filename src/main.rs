@@ -306,12 +306,12 @@ fn main() -> anyhow::Result<()> {
         let token = TokenManager::refresh(&auth_client, token)?;
         let fail_store = Mutex::new(TextStore::from_file("./fail_store.txt")?);
 
-        let is_not_fail = |id: &u32| {
+        /* let is_not_fail = |id: &u32| {
             if retry_fail {
                 return true;
             }
             !(fail_store.lock().unwrap().has(id))
-        };
+        }; */
 
         let is_not_found_error = |err: &anyhow::Error| {
             err.to_string()
@@ -380,10 +380,32 @@ fn main() -> anyhow::Result<()> {
                     Ok(ids)
                 })
                 .and_then(|ids| {
+                    /* ids.into_par_iter().for_each(|id| {
+                        let already_images = book_client
+                        .get_image_list(TokenLens::get(&token).unwrap(), id)
+                        .is_ok();
+
+                    let already_book_info = book_client
+                        .get_book_by_id(TokenLens::get(&token).unwrap(), id as i32)
+                        .is_ok();
+
+                    if already_images && already_book_info {
+                        info!("Already has book in Madome");
+                    }
+
+                    if !already_images {
+                        sync(id, &token, &fail_store, true, false).unwrap_or_else(|_| {});
+                    }
+
+                    if !already_book_info {
+                        sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
+                    }
+                    }); */
+
                     let images_not_ready_ids = ids
                         .clone()
                         .into_par_iter()
-                        .filter(is_not_fail)
+                        // .filter(is_not_fail)
                         .filter_map(|id| {
                             book_client
                                 .get_image_list(TokenLens::get(&token).unwrap(), id)
@@ -395,7 +417,7 @@ fn main() -> anyhow::Result<()> {
 
                     let info_not_ready_ids = ids
                         .into_par_iter()
-                        .filter(is_not_fail)
+                        // .filter(is_not_fail)
                         .filter_map(|id| {
                             book_client
                                 .get_book_by_id(TokenLens::get(&token).unwrap(), id as i32)
@@ -418,20 +440,21 @@ fn main() -> anyhow::Result<()> {
                     Ok((images_not_ready_ids, info_not_ready_ids))
                 })
                 .and_then(|(images_not_ready_ids, info_not_ready_ids)| {
-                    
                     let info_synced_ids = Arc::new(Mutex::new(vec![]));
 
                     images_not_ready_ids.into_par_iter().for_each(|id| {
+                        sync(id, &token, &fail_store, true, false)
+                            .and_then(|_| {
+                                if info_not_ready_ids.contains(&id) {
+                                    sync(id, &token, &fail_store, false, true)
+                                        .unwrap_or_else(|_| {});
 
-                        sync(id, &token, &fail_store, true, false).and_then( |_| {
-                            if info_not_ready_ids.contains(&id) {
-                                sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
-
-                                let info_synced_ids = Arc::clone(&info_synced_ids);
-                                info_synced_ids.lock().unwrap().push(id);
-                            }
-                            Ok(())
-                        }).unwrap_or_else(|_| {});
+                                    let info_synced_ids = Arc::clone(&info_synced_ids);
+                                    info_synced_ids.lock().unwrap().push(id);
+                                }
+                                Ok(())
+                            })
+                            .unwrap_or_else(|_| {});
                     });
 
                     info_not_ready_ids.into_par_iter().for_each(|id| {
@@ -440,7 +463,6 @@ fn main() -> anyhow::Result<()> {
                             sync(id, &token, &fail_store, false, true).unwrap_or_else(|_| {});
                         }
                     });
-
 
                     Ok(())
                 })
