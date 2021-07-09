@@ -94,19 +94,19 @@ impl File {
 
         debug!("x {}", x);
 
-        if let Ok(mut x) = u32::from_str_radix(&x, 16) {
+        if let Ok(x) = u32::from_str_radix(&x, 16) {
             let mut n: u32 = 3;
 
             debug!("x {}", x);
-            if x < 0x70 {
-                n = 2;
+            if x < 0x80 {
+                n = 1;
             }
-            if x < 0x49 {
-                x = 1;
+            if x < 0x40 {
+                n = 2;
             }
             debug!("n {}", n);
 
-            subdomain = char::from_u32(97 + (x % n)).unwrap().to_string();
+            subdomain = char::from_u32(97 + n).unwrap().to_string();
         }
 
         debug!("2nd subdomain {}", subdomain);
