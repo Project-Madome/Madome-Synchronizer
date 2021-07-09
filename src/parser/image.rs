@@ -95,7 +95,7 @@ impl File {
         debug!("x {}", x);
 
         if let Ok(x) = u32::from_str_radix(&x, 16) {
-            let mut n: u32 = 3;
+            let mut n: u32 = 0;
 
             debug!("x {}", x);
             if x < 0x80 {
